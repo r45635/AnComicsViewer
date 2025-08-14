@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Run App", "type": "shell", "command": "${workspaceFolder}/.venv/bin/python AnComicsViewer.py", "group": "build" },
+    { "label": "Export Pages", "type": "shell", "command": "${workspaceFolder}/.venv/bin/python tools/export_pdf_pages.py ${input:pdf} --out out/ --dpi 300" },
+    { "label": "YOLO Train", "type": "shell", "command": "${workspaceFolder}/.venv/bin/yolo segment train model=yolov8m-seg.pt data=ml/dataset.yaml imgsz=1280" }
+  ],
+  "inputs": [
+    { "id": "pdf", "type": "promptString", "description": "PDF path" }
+  ]
+}

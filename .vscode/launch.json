@@ -1,0 +1,6 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    { "name": "Run ComicsView", "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/AnComicsViewer.py", "console": "integratedTerminal", "env": { "PYTHONPATH": "${workspaceFolder}" } }
+  ]
+}
