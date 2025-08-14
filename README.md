@@ -1,101 +1,177 @@
+<div align="center">
+
+![AnComicsViewer Logo](logo.png)
+
 # AnComicsViewer
 
-A lightweight PDF/manga/comics reader with heuristic panel detection and an interactive tuning dialog.
+**A lightweight PDF/manga/comics reader with intelligent panel detection**
 
-This repository contains a single-file PySide6 + OpenCV-based viewer (`AnComicsViewer.py`) that
-detects rectangular panels on comic book pages using a heuristic pipeline. It includes an interactive
-Panel Tuning dialog so you can adjust detection parameters and immediately re-run detection.
+[![Windows CI](https://github.com/r45635/AnComicsViewer/actions/workflows/windows-smoke.yml/badge.svg)](https://github.com/r45635/AnComicsViewer/actions/workflows/windows-smoke.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Features
-- Heuristic panel detection using adaptive thresholding, morphological cleanup, light/gutter splitting,
-  and recursive projection splitting.
-- Interactive `Panel Tuning` dialog exposing DPI-stable fractional thresholds, projection smoothing,
-  and title-row heuristics (two-scenario rule: many small OR a few big title boxes).
-- Runtime parameter snapshot logging (printed to stdout) to help reproduce detection settings.
+</div>
 
-Quick start (recommended: use the included virtualenv)
+---
 
-1) Create and activate a virtual environment (macOS / zsh):
+## Overview
 
+AnComicsViewer is a single-file PySide6 + OpenCV-based viewer that detects rectangular panels on comic book pages using a sophisticated heuristic pipeline. It features an interactive Panel Tuning dialog for real-time parameter adjustment and immediate re-detection.
+
+## ✨ Features
+
+- 🎯 **Heuristic panel detection** using adaptive thresholding, morphological cleanup, light/gutter splitting, and recursive projection splitting
+- ⚙️ **Interactive Panel Tuning dialog** with DPI-stable fractional thresholds, projection smoothing, and title-row heuristics
+- 📊 **Two-scenario title detection** (many small OR few big title boxes)
+- 🔍 **Runtime parameter logging** printed to stdout for reproducible detection settings
+- 🖥️ **Cross-platform support** (macOS, Windows, Linux)
+- 📱 **Modern Qt-based UI** with panel overlay visualization
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.9+ (tested with 3.11)
+- Virtual environment (recommended)
+
+### Installation
+
+1. **Clone and setup:**
+   ```bash
+   git clone https://github.com/r45635/AnComicsViewer.git
+   cd AnComicsViewer
+   python -m venv .venv
+   ```
+
+2. **Activate environment:**
+   ```bash
+   # macOS/Linux
+   source .venv/bin/activate
+   
+   # Windows
+   .venv\Scripts\activate
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Running the Application
+
+#### macOS (recommended method):
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+chmod +x run.sh
+./run.sh
 ```
 
-2) Install runtime dependencies:
-
-```bash
-pip install -r requirements.txt
+#### Windows:
+```powershell
+.\run_win.ps1
 ```
 
-3) Run the app (macOS note below):
-
+#### Manual (any platform):
 ```bash
 # macOS: ensure Qt can find the cocoa platform plugin
 QT_QPA_PLATFORM_PLUGIN_PATH=$(python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins', 'platforms'))") \
   .venv/bin/python AnComicsViewer.py
 ```
 
-What to expect
-- The app prints parameter snapshots and per-page detection debug messages to the terminal. When you
-  open the `Panel Tuning` dialog, change values, and click `Apply`, the app clears the panel cache,
-  re-runs detection at the page DPI, and prints a new parameter snapshot followed by detection logs.
+## 🎮 Usage
 
-Notes and troubleshooting
-- If Qt complains about the `cocoa` plugin on macOS, set `QT_QPA_PLATFORM_PLUGIN_PATH` as shown above.
-- If you have issues with the most recent PySide6 builds, a known working version in this repo's
-  environment is `PySide6==6.8.3` (installed in the development venv I tested with). You can adjust the
-  pinned version in `requirements.txt` if necessary.
+1. **Launch the app** using one of the methods above
+2. **Open a PDF** via File menu or drag & drop
+3. **Navigate pages** using toolbar buttons or keyboard shortcuts
+4. **Access Panel Tuning** via the ⚙️ button in the toolbar
+5. **Adjust parameters** and click "Apply" to see immediate results
+6. **Monitor detection logs** in the terminal for debugging
 
-Developer tips
-- The main detection logic and tunables live in `AnComicsViewer.py` within the `PanelDetector` class.
-- The `PanelTuningDialog` writes tunable values back to the detector; `_apply_panel_tuning` now clears
-  the panel cache and forces re-detection.
-
-License
-- This repo contains example code; add a license file if you want to make terms explicit.
-
-If you want, I can also add a small smoke-test script that programmatically runs detection on a bundled
-sample page and writes a JSON snapshot of the detected panels for CI or regression testing.
-# AnComicsViewer
-
-Minimal standalone PDF comics reader (PySide6) with a heuristic panel detector (OpenCV).
-
-This README explains how to create a fresh virtualenv, install runtime dependencies, and run the app on macOS (zsh), including the small env-var fix required when Qt cannot find the `cocoa` platform plugin.
-
-## Prerequisites
-- Python 3.11+ (recommended). Use the system Python or Homebrew Python on macOS.
-- zsh (default on modern macOS)
-
-## Fresh install (recommended)
-Open a terminal in the repository root and run:
-
-```bash
-# create a venv and activate it
-python3 -m venv .venv
-source .venv/bin/activate
-
-# upgrade pip and install deps
-pip install --upgrade pip
-pip install -r requirements.txt
+### Expected Output
+The app prints parameter snapshots and per-page detection debug messages to the terminal:
+```
+[Panels] params: ab=51 C=5 mk=7 mi=2 min_area=0.015 max_area=0.95 min_fill=0.55 min_px=80 ... psk=17
+[Panels] Converted to gray: 1200x1858
+[Panels] Adaptive route -> 5 rects
+[Panels] [title-row] y=0.14 h=0.070 n=2 medW=0.26 L=0.66 -> KEEP (many_small=False few_big=True)
 ```
 
-## Run (macOS / zsh)
+## 🔧 Troubleshooting
 
-On macOS, Qt sometimes cannot find the `cocoa` platform plugin when using a venv. Use the following small env-var command to locate PySide6's plugins and run the app in one line (recommended):
+### macOS Issues
+- **Qt cocoa plugin not found**: Use the provided `run.sh` script or set `QT_QPA_PLATFORM_PLUGIN_PATH` as shown above
+- **PySide6 compatibility**: Tested with `PySide6==6.8.3`. Adjust in `requirements.txt` if needed
 
+### Windows Issues  
+- **Platform plugin errors**: Use the `run_win.ps1` PowerShell script
+- **Path issues**: Ensure Python and pip are in your PATH
+
+### General Issues
+- **Import errors**: Activate the virtual environment: `source .venv/bin/activate` (macOS/Linux) or `.venv\Scripts\activate` (Windows)
+- **Missing dependencies**: Run `pip install -r requirements.txt`
+
+## 🧪 Testing
+
+Run the smoke test to verify installation:
 ```bash
-export QT_QPA_PLATFORM_PLUGIN_PATH=$(python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins', 'platforms'))")
-.venv/bin/python AnComicsViewer.py
+python smoke_test.py
 ```
 
-Or as a single inline prefix (no export):
-
-```bash
-QT_QPA_PLATFORM_PLUGIN_PATH=$(python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins', 'platforms'))") .venv/bin/python AnComicsViewer.py
+Expected output:
+```json
+{
+  "count": 3,
+  "rects": [
+    {"x": 50.0, "y": 100.0, "w": 700.0, "h": 300.0},
+    ...
+  ]
+}
 ```
 
-If the first command prints an empty path or errors, ensure PySide6 is installed in the active environment (`pip install PySide6`) and retry.
+## 👨‍💻 Development
+
+### Project Structure
+- `AnComicsViewer.py` - Main application (single file)
+- `PanelDetector` class - Detection pipeline and tunables
+- `PanelTuningDialog` - Interactive parameter adjustment UI
+- `ComicsView` - Main window with PDF viewer and panel overlay
+
+### Key Classes
+- **PanelDetector**: Core detection logic with configurable parameters
+- **PanelTuningDialog**: UI for real-time parameter tuning
+- **ComicsView**: Main application window and PDF handling
+
+### Detection Pipeline
+1. **Adaptive thresholding** - Convert to binary mask
+2. **Morphological operations** - Clean up noise
+3. **Contour detection** - Find rectangular regions
+4. **Light/gutter splitting** - Recursive panel separation
+5. **Title-row filtering** - Remove text-heavy regions
+6. **Panel merging** - Combine adjacent regions
+
+## 📝 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run the smoke test
+5. Submit a pull request
+
+## 📊 Status
+
+- ✅ Core panel detection working
+- ✅ Interactive tuning dialog
+- ✅ Cross-platform support (macOS, Windows)  
+- ✅ CI/CD pipeline
+- ⏳ Additional detection algorithms (future)
+- ⏳ Batch processing support (future)
+
+---
+
+<div align="center">
+Made with ❤️ for comic and manga readers everywhere
+</div>
 
 ## Quick troubleshooting
 - Error "Could not find the Qt platform plugin \"cocoa\"": confirm the env-var above points to a directory that contains files like `libqcocoa.dylib` (or similar). If not present, reinstall PySide6 in the venv: `pip install --force-reinstall PySide6`.
