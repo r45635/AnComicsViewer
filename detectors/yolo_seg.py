@@ -1,6 +1,11 @@
 from typing import List, Tuple
 import numpy as np
 import cv2
+
+# Set matplotlib backend to avoid GUI issues
+import matplotlib
+matplotlib.use('Agg')
+
 from ultralytics import YOLO
 from PySide6.QtCore import QRectF, QSizeF
 from PySide6.QtGui import QImage
@@ -29,7 +34,23 @@ def iou_xyxy(a: Tuple[float,float,float,float], b: Tuple[float,float,float,float
 
 class YoloSegPanelDetector(BasePanelDetector):
     def __init__(self, weights: str, conf: float = 0.25, iou: float = 0.5, rtl: bool=False):
-        self.model = YOLO(weights)
+        # Handle PyTorch security changes for YOLO model loading
+        import torch
+        
+        # Temporarily patch torch.load to allow loading YOLO models
+        original_load = torch.load
+        def patched_load(f, map_location=None, pickle_module=None, weights_only=None, **kwargs):
+            if weights_only is None:
+                weights_only = False  # Use False for YOLO models
+            return original_load(f, map_location=map_location, pickle_module=pickle_module, 
+                               weights_only=weights_only, **kwargs)
+        
+        torch.load = patched_load
+        try:
+            self.model = YOLO(weights)
+        finally:
+            torch.load = original_load  # Restore original function
+            
         self.conf, self.iou = conf, iou
         self.reading_rtl = rtl
 

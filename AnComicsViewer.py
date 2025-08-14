@@ -1094,10 +1094,16 @@ class ComicsView(QMainWindow):
         def _switch_ml():
             if not self._ml_weights:
                 QMessageBox.warning(self, "ML", "Load weights (.pt) first."); return
-            from detectors.yolo_seg import YoloSegPanelDetector
-            self._panel_detector = YoloSegPanelDetector(weights=self._ml_weights, rtl=False)
-            act_ml.setChecked(True); act_heur.setChecked(False)
-            self._apply_panel_tuning(self._det_dpi)
+            try:
+                from detectors.yolo_seg import YoloSegPanelDetector
+                self._panel_detector = YoloSegPanelDetector(weights=self._ml_weights, rtl=False)
+                act_ml.setChecked(True); act_heur.setChecked(False)
+                self._apply_panel_tuning(self._det_dpi)
+                QMessageBox.information(self, "ML", "Successfully switched to YOLOv8 detector!")
+            except Exception as e:
+                QMessageBox.critical(self, "ML Error", f"Failed to load YOLOv8 detector:\\n{str(e)}")
+                # Revert to heuristic
+                act_heur.setChecked(True); act_ml.setChecked(False)
 
         def _load_weights():
             p, _ = QFileDialog.getOpenFileName(self, "Load YOLO weights", self._default_dir(), "PT files (*.pt)")
