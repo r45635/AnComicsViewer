@@ -15,12 +15,24 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: Install dependencies
+      - name: Install dependencies (pin pip + retry)
         run: |
           python -m venv .venv
           .\.venv\Scripts\Activate.ps1
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          # pin pip to a known-good minor release to avoid pip auto-upgrade edge cases
+          python -m pip install --upgrade pip==24.1.1
+          # retry pip install in case of transient network/resolution issues
+          $max = 3
+          for ($i = 1; $i -le $max; $i++) {
+            try {
+              pip install -r requirements.txt
+              break
+            } catch {
+              if ($i -eq $max) { throw }
+              Write-Host "pip install failed on attempt $i, retrying in 5s..."
+              Start-Sleep -Seconds 5
+            }
+          }
       - name: Run smoke test
         run: |
           .\.venv\Scripts\Activate.ps1
