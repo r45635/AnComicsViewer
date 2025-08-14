@@ -1,0 +1,27 @@
+name: Windows smoke test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\Activate.ps1
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run smoke test
+        run: |
+          .\.venv\Scripts\Activate.ps1
+          python smoke_test.py
