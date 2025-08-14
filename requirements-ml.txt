@@ -1,0 +1,7 @@
+ultralytics==8.2.0
+torch
+torchvision
+torchaudio
+opencv-python
+numpy
+pillow
