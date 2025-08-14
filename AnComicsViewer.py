@@ -980,6 +980,7 @@ class ComicsView(QMainWindow):
         self._panel_cache: dict[int, List[QRectF]] = {}
         self._panel_index = -1
         self._det_dpi = 150.0  # detection render DPI (150/200 recommended)
+        self._ml_weights = ""  # chemin vers .pt (à charger)
 
         # Drag & drop
         self.setAcceptDrops(True)
@@ -1077,6 +1078,34 @@ class ComicsView(QMainWindow):
         rerun.triggered.connect(self._rerun_detection_current_page)
         rerun_all = menu.addAction("Re-run detection (all pages)")
         rerun_all.triggered.connect(self._rerun_detection_all)
+
+        # Detector submenu
+        det_menu = menu.addMenu("Detector")
+        act_heur = det_menu.addAction("Heuristic (OpenCV)"); act_heur.setCheckable(True); act_heur.setChecked(True)
+        act_ml   = det_menu.addAction("YOLOv8 Seg (ML)");    act_ml.setCheckable(True)
+        act_load = det_menu.addAction("Load ML weights…")
+
+        def _switch_heur():
+            from AnComicsViewer import PanelDetector as Heur
+            self._panel_detector = Heur(debug=self._debug_panels)
+            act_heur.setChecked(True); act_ml.setChecked(False)
+            self._apply_panel_tuning(self._det_dpi)
+
+        def _switch_ml():
+            if not self._ml_weights:
+                QMessageBox.warning(self, "ML", "Load weights (.pt) first."); return
+            from detectors.yolo_seg import YoloSegPanelDetector
+            self._panel_detector = YoloSegPanelDetector(weights=self._ml_weights, rtl=False)
+            act_ml.setChecked(True); act_heur.setChecked(False)
+            self._apply_panel_tuning(self._det_dpi)
+
+        def _load_weights():
+            p, _ = QFileDialog.getOpenFileName(self, "Load YOLO weights", self._default_dir(), "PT files (*.pt)")
+            if p: self._ml_weights = p; QMessageBox.information(self, "ML", f"Loaded weights:\\n{p}")
+
+        act_heur.triggered.connect(_switch_heur)
+        act_ml.triggered.connect(_switch_ml)
+        act_load.triggered.connect(_load_weights)
 
         # Advanced tuning dialog
         menu.addSeparator()
