@@ -18,9 +18,23 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     d = QPdfDocument()
     
+    print(f"Attempting to load PDF: {a.pdf}")
+    print(f"File exists: {os.path.exists(a.pdf)}")
+    print(f"File size: {os.path.getsize(a.pdf) if os.path.exists(a.pdf) else 'N/A'} bytes")
+    
     load_result = d.load(a.pdf)
-    if load_result != 0:
-        print(f"Error loading PDF: {a.pdf} (error code: {load_result})")
+    print(f"Load result: {load_result}")
+    
+    # Check if loading was successful - QPdfDocument.Error.None_ means no error
+    success = (load_result == QPdfDocument.Error.None_)
+    
+    if not success:
+        print(f"Error loading PDF: {a.pdf}")
+        print(f"Error code: {load_result}")
+        try:
+            print(f"Error name: {load_result.name}")
+        except:
+            print("Could not get error name")
         return 1
         
     print(f"Loaded PDF: {a.pdf} ({d.pageCount()} pages)")
