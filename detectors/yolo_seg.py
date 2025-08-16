@@ -33,7 +33,7 @@ def iou_xyxy(a: Tuple[float,float,float,float], b: Tuple[float,float,float,float
     return inter/ua if ua>0 else 0.0
 
 class YoloSegPanelDetector(BasePanelDetector):
-    def __init__(self, weights: str, conf: float = 0.25, iou: float = 0.5, rtl: bool=False):
+    def __init__(self, weights: str, conf: float = 0.1, iou: float = 0.5, rtl: bool=False):
         # Handle PyTorch security changes for YOLO model loading
         import torch
         
@@ -61,7 +61,18 @@ class YoloSegPanelDetector(BasePanelDetector):
         r = self.model.predict(source=rgb, imgsz=1280, conf=self.conf, iou=self.iou, verbose=False)[0]
         panels: List[QRectF] = []
         titles = []
-        if r.masks is not None:
+        
+        # Check for bounding box detection results
+        if r.boxes is not None and len(r.boxes) > 0:
+            for box, cls in zip(r.boxes.xyxy.cpu().numpy(), r.boxes.cls.cpu().numpy().astype(int)):
+                x1,y1,x2,y2 = box.tolist()
+                if cls == CLASS_PANEL:
+                    panels.append(QRectF(x1/s, y1/s, (x2-x1)/s, (y2-y1)/s))
+                elif cls == CLASS_TITLE:
+                    titles.append((x1,y1,x2,y2))
+        
+        # Legacy segmentation mask support (if available)
+        elif r.masks is not None:
             for box, cls in zip(r.boxes.xyxy.cpu().numpy(), r.boxes.cls.cpu().numpy().astype(int)):
                 x1,y1,x2,y2 = box.tolist()
                 if cls == CLASS_PANEL:

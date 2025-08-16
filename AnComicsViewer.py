@@ -980,7 +980,14 @@ class ComicsView(QMainWindow):
         self._panel_cache: dict[int, List[QRectF]] = {}
         self._panel_index = -1
         self._det_dpi = 150.0  # detection render DPI (150/200 recommended)
-        self._ml_weights = ""  # chemin vers .pt (à charger)
+        
+        # Auto-load trained model if available
+        trained_model = "runs/detect/overfit_small/weights/best.pt"
+        if os.path.exists(trained_model):
+            self._ml_weights = trained_model
+            pdebug(f"Auto-loaded trained model: {trained_model}")
+        else:
+            self._ml_weights = ""  # chemin vers .pt (à charger)
 
         # Drag & drop
         self.setAcceptDrops(True)
@@ -1083,12 +1090,13 @@ class ComicsView(QMainWindow):
         det_menu = menu.addMenu("Detector")
         act_heur = det_menu.addAction("Heuristic (OpenCV)"); act_heur.setCheckable(True); act_heur.setChecked(True)
         act_ml   = det_menu.addAction("YOLOv8 Seg (ML)");    act_ml.setCheckable(True)
+        act_multibd = det_menu.addAction("Multi-BD (Trained)"); act_multibd.setCheckable(True)
         act_load = det_menu.addAction("Load ML weights…")
 
         def _switch_heur():
             from AnComicsViewer import PanelDetector as Heur
             self._panel_detector = Heur(debug=self._debug_panels)
-            act_heur.setChecked(True); act_ml.setChecked(False)
+            act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False)
             self._apply_panel_tuning(self._det_dpi)
 
         def _switch_ml():
@@ -1097,13 +1105,32 @@ class ComicsView(QMainWindow):
             try:
                 from detectors.yolo_seg import YoloSegPanelDetector
                 self._panel_detector = YoloSegPanelDetector(weights=self._ml_weights, rtl=False)
-                act_ml.setChecked(True); act_heur.setChecked(False)
+                act_ml.setChecked(True); act_heur.setChecked(False); act_multibd.setChecked(False)
                 self._apply_panel_tuning(self._det_dpi)
                 QMessageBox.information(self, "ML", "Successfully switched to YOLOv8 detector!")
             except Exception as e:
                 QMessageBox.critical(self, "ML Error", f"Failed to load YOLOv8 detector:\\n{str(e)}")
                 # Revert to heuristic
-                act_heur.setChecked(True); act_ml.setChecked(False)
+                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False)
+
+        def _switch_multibd():
+            try:
+                from detectors.multibd_detector import MultiBDPanelDetector
+                self._panel_detector = MultiBDPanelDetector()
+                act_multibd.setChecked(True); act_heur.setChecked(False); act_ml.setChecked(False)
+                self._apply_panel_tuning(self._det_dpi)
+                
+                # Afficher les infos du modèle
+                info = self._panel_detector.get_model_info()
+                msg = f"✅ Modèle Multi-BD activé!\n\n"
+                msg += f"📊 Performance: mAP50 {info['performance']['mAP50']}\n"
+                msg += f"🎯 Entraîné sur: {', '.join(info['training_data'])}\n"
+                msg += f"🔧 Seuil confiance: {info['confidence']}"
+                QMessageBox.information(self, "Multi-BD Detector", msg)
+            except Exception as e:
+                QMessageBox.critical(self, "Multi-BD Error", f"Échec chargement détecteur Multi-BD:\\n{str(e)}")
+                # Revert to heuristic
+                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False)
 
         def _load_weights():
             p, _ = QFileDialog.getOpenFileName(self, "Load YOLO weights", self._default_dir(), "PT files (*.pt)")
@@ -1111,6 +1138,7 @@ class ComicsView(QMainWindow):
 
         act_heur.triggered.connect(_switch_heur)
         act_ml.triggered.connect(_switch_ml)
+        act_multibd.triggered.connect(_switch_multibd)
         act_load.triggered.connect(_load_weights)
 
         # Advanced tuning dialog
