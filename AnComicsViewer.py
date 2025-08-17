@@ -1451,58 +1451,178 @@ class ComicsView(QMainWindow):
         self.statusBar().showMessage("Panel mode ON" if self._panel_mode else "Panel mode OFF", 2000)
 
     def panel_next(self):
+        """Navigation vers la case suivante avec saut de page automatique."""
         if not (self.document and self._panel_mode):
             return
         try:
-            self._ensure_panels()
             cur = self.view.pageNavigator().currentPage()
+            self._ensure_panels_for(cur)
             rects = self._panel_cache.get(cur, [])
-            if not rects:
-                pdebug("panel_next: no panels")
-                self.statusBar().showMessage("No panels detected on this page", 2000)
+            
+            # Cas spécial : gestion de l'état initial _panel_index == -1
+            if self._panel_index == -1:
+                # Chercher la première page avec des panels à partir de la page courante
+                for page in range(cur, self.document.pageCount()):
+                    self._ensure_panels_for(page)
+                    page_rects = self._panel_cache.get(page, [])
+                    if page_rects:
+                        if page != cur:
+                            self._goto_page_and_overlay(page)
+                            self.statusBar().showMessage(f"Page {page + 1}: panel 1/{len(page_rects)}", 3000)
+                        self._panel_index = 0
+                        self._focus_panel(page_rects[0])
+                        pdebug(f"panel_next (init) -> page {page}, panel 1/{len(page_rects)}")
+                        return
+                # Aucune page avec panels trouvée
+                self.statusBar().showMessage("No panels found in document", 2000)
                 return
-            self._panel_index = (self._panel_index + 1) % len(rects)
+            
+            # Si pas de panels sur la page courante, chercher la page suivante
+            if not rects:
+                for page in range(cur + 1, self.document.pageCount()):
+                    self._ensure_panels_for(page)
+                    page_rects = self._panel_cache.get(page, [])
+                    if page_rects:
+                        self._goto_page_and_overlay(page)
+                        self._panel_index = 0
+                        self._focus_panel(page_rects[0])
+                        self.statusBar().showMessage(f"Page {page + 1}: panel 1/{len(page_rects)}", 3000)
+                        pdebug(f"panel_next (no panels) -> page {page}, panel 1/{len(page_rects)}")
+                        return
+                # Aucune page suivante avec panels
+                self.statusBar().showMessage("No more panels in document", 2000)
+                return
+            
+            # Si on est sur la dernière case de la page, passer à la page suivante
+            if self._panel_index >= len(rects) - 1:
+                for page in range(cur + 1, self.document.pageCount()):
+                    self._ensure_panels_for(page)
+                    page_rects = self._panel_cache.get(page, [])
+                    if page_rects:
+                        self._goto_page_and_overlay(page)
+                        self._panel_index = 0
+                        self._focus_panel(page_rects[0])
+                        self.statusBar().showMessage(f"Page {page + 1}: panel 1/{len(page_rects)}", 3000)
+                        pdebug(f"panel_next (page jump) -> page {page}, panel 1/{len(page_rects)}")
+                        return
+                # Pas de page suivante avec panels
+                self.statusBar().showMessage("Last panel reached", 2000)
+                return
+            
+            # Cas normal : passer à la case suivante sur la même page
+            self._panel_index += 1
             self._focus_panel(rects[self._panel_index])
             pdebug(f"panel_next -> {self._panel_index + 1}/{len(rects)}")
+            
         except Exception:
             pdebug("panel_next error:\n" + traceback.format_exc())
 
     def panel_prev(self):
+        """Navigation vers la case précédente avec saut de page automatique."""
         if not (self.document and self._panel_mode):
             return
         try:
-            self._ensure_panels()
             cur = self.view.pageNavigator().currentPage()
+            self._ensure_panels_for(cur)
             rects = self._panel_cache.get(cur, [])
-            if not rects:
-                pdebug("panel_prev: no panels")
-                self.statusBar().showMessage("No panels detected on this page", 2000)
+            
+            # Cas spécial : gestion de l'état initial _panel_index == -1
+            if self._panel_index == -1:
+                # Chercher la dernière page avec des panels en partant de la page courante vers l'arrière
+                for page in range(cur, -1, -1):
+                    self._ensure_panels_for(page)
+                    page_rects = self._panel_cache.get(page, [])
+                    if page_rects:
+                        if page != cur:
+                            self._goto_page_and_overlay(page)
+                            self.statusBar().showMessage(f"Page {page + 1}: panel {len(page_rects)}/{len(page_rects)}", 3000)
+                        self._panel_index = len(page_rects) - 1
+                        self._focus_panel(page_rects[self._panel_index])
+                        pdebug(f"panel_prev (init) -> page {page}, panel {len(page_rects)}/{len(page_rects)}")
+                        return
+                # Aucune page avec panels trouvée
+                self.statusBar().showMessage("No panels found in document", 2000)
                 return
-            self._panel_index = (self._panel_index - 1) % len(rects)
+            
+            # Si pas de panels sur la page courante, chercher la page précédente
+            if not rects:
+                for page in range(cur - 1, -1, -1):
+                    self._ensure_panels_for(page)
+                    page_rects = self._panel_cache.get(page, [])
+                    if page_rects:
+                        self._goto_page_and_overlay(page)
+                        self._panel_index = len(page_rects) - 1
+                        self._focus_panel(page_rects[self._panel_index])
+                        self.statusBar().showMessage(f"Page {page + 1}: panel {len(page_rects)}/{len(page_rects)}", 3000)
+                        pdebug(f"panel_prev (no panels) -> page {page}, panel {len(page_rects)}/{len(page_rects)}")
+                        return
+                # Aucune page précédente avec panels
+                self.statusBar().showMessage("No previous panels in document", 2000)
+                return
+            
+            # Si on est sur la première case de la page, passer à la page précédente
+            if self._panel_index <= 0:
+                for page in range(cur - 1, -1, -1):
+                    self._ensure_panels_for(page)
+                    page_rects = self._panel_cache.get(page, [])
+                    if page_rects:
+                        self._goto_page_and_overlay(page)
+                        self._panel_index = len(page_rects) - 1
+                        self._focus_panel(page_rects[self._panel_index])
+                        self.statusBar().showMessage(f"Page {page + 1}: panel {len(page_rects)}/{len(page_rects)}", 3000)
+                        pdebug(f"panel_prev (page jump) -> page {page}, panel {len(page_rects)}/{len(page_rects)}")
+                        return
+                # Pas de page précédente avec panels
+                self.statusBar().showMessage("First panel reached", 2000)
+                return
+            
+            # Cas normal : passer à la case précédente sur la même page
+            self._panel_index -= 1
             self._focus_panel(rects[self._panel_index])
             pdebug(f"panel_prev -> {self._panel_index + 1}/{len(rects)}")
+            
         except Exception:
             pdebug("panel_prev error:\n" + traceback.format_exc())
 
+    def _goto_page_and_overlay(self, page: int):
+        """Helper de changement de page avec overlay des panels."""
+        if not self.document:
+            return
+        # Naviguer vers la page
+        self.view.pageNavigator().jump(page, QPointF(0, 0))
+        # Assurer la détection des panels
+        self._ensure_panels_for(page)
+        # Récupérer et afficher l'overlay
+        rects = self._panel_cache.get(page, [])
+        self.view.set_panel_overlay(rects, self._panel_mode)
+
+    def _ensure_panels_for(self, page: int, force: bool = False):
+        """Helper pour détecter les cases d'une page donnée."""
+        if not self.document:
+            pdebug("ensure_panels_for: no document")
+            return
+        if (not force) and page in self._panel_cache:
+            return
+        try:
+            pt = self.document.pagePointSize(page)
+            dpi = self._det_dpi
+            scale = dpi / 72.0
+            qsize = QSizeF(pt.width() * scale, pt.height() * scale).toSize()
+            qimg = self.document.render(page, qsize)
+            rects = self._panel_detector.detect_panels(qimg, pt)
+            self._panel_cache[page] = rects
+            pdebug(f"ensure_panels_for: page={page}, panels={len(rects)} @ {int(dpi)} DPI")
+        except Exception:
+            pdebug("ensure_panels_for error:\n" + traceback.format_exc())
+            self._panel_cache[page] = []
+
     def _ensure_panels(self, force: bool=False):
+        """Assure la détection des cases pour la page courante."""
         if not self.document:
             pdebug("ensure_panels: no document")
             return
         cur = self.view.pageNavigator().currentPage()
-        if (not force) and cur in self._panel_cache:
-            return
-        try:
-            pt = self.document.pagePointSize(cur)
-            dpi = self._det_dpi
-            scale = dpi / 72.0
-            qsize = QSizeF(pt.width() * scale, pt.height() * scale).toSize()
-            qimg = self.document.render(cur, qsize)
-            rects = self._panel_detector.detect_panels(qimg, pt)
-            self._panel_cache[cur] = rects
-            pdebug(f"ensure_panels: page={cur}, panels={len(rects)} @ {int(dpi)} DPI")
-        except Exception:
-            pdebug("ensure_panels error:\n" + traceback.format_exc())
-            self._panel_cache[cur] = []
+        self._ensure_panels_for(cur, force)
 
     def _focus_panel(self, rect: QRectF):
         """Zoom selon le framing puis scroll correctement."""
