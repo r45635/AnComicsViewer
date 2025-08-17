@@ -5,7 +5,7 @@ import cv2
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from detectors.yolo_seg import YoloSegPanelDetector
+import sys; sys.path.append(".."); from detectors.yolo_seg import YoloSegPanelDetector
 
 def overlay_predictions(img_path, model, out):
     detector = YoloSegPanelDetector(model)

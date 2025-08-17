@@ -1,0 +1,19 @@
+# YOLO Dataset Configuration
+# Generated from LabelMe annotations
+
+path: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/yolo
+train: images/train
+val: images/val
+test: images/val  # Use validation as test for now
+
+# Classes
+nc: 2
+names: ['panel', 'panel_inset']
+
+# Dataset info
+source: LabelMe annotations
+classes: {'panel': 0, 'panel_inset': 1}
+total_images: 50
+train_images: 40
+val_images: 10
+total_annotations: 377

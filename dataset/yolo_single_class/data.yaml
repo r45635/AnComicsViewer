@@ -1,0 +1,5 @@
+
+train: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/yolo_single_class/images/train
+val: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/yolo_single_class/images/val
+nc: 1
+names: ['panel']
