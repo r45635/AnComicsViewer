@@ -1,0 +1,29 @@
+{
+  "name": "Multi-BD Panel Detector",
+  "version": "1.0",
+  "format": "ONNX",
+  "input_size": [
+    1,
+    3,
+    640,
+    640
+  ],
+  "input_type": "float32",
+  "classes": [
+    "panel",
+    "panel_inset"
+  ],
+  "training_data": [
+    "Golden City",
+    "Tintin",
+    "Pin-up du B24"
+  ],
+  "performance": {
+    "mAP50": "91.1%",
+    "mAP50-95": "88.3%",
+    "precision": "84.0%",
+    "recall": "88.7%"
+  },
+  "mobile_optimized": true,
+  "opset_version": 11
+}
