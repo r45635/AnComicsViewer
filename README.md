@@ -27,7 +27,21 @@
 
 ## ⚡ **Installation & Utilisation**
 
-### 📋 **Prérequis**
+### � **Exécutables Standalone (Recommandé)**
+
+**Aucune installation requise ! Téléchargez et lancez directement :**
+
+- 🪟 **Windows** : [`AnComicsViewer-Windows.zip`](https://github.com/r45635/AnComicsViewer/releases/latest)
+- 🍎 **macOS** : [`AnComicsViewer-macOS.tar.gz`](https://github.com/r45635/AnComicsViewer/releases/latest)
+- 🐧 **Linux** : [`AnComicsViewer-Linux.tar.gz`](https://github.com/r45635/AnComicsViewer/releases/latest)
+
+**Instructions :**
+1. Télécharger l'archive pour votre OS
+2. Extraire l'archive
+3. Double-clic sur l'exécutable
+4. Profiter ! 🎉
+
+### 📋 **Installation Développeur (Optionnelle)**
 ```bash
 # Python 3.8+ requis
 python --version
@@ -98,6 +112,29 @@ AnComicsViewer/
 
 ### ✅ **Tests Intégrés**
 ```bash
+# Test d'intégration complet
+python tools/test_multibd_integration.py
+
+# Test de base du viewer
+python tools/smoke_test.py
+
+# Analyse du dataset
+python tools/dataset_analyzer.py coverage
+```
+
+### 🏗️ **Construction Exécutables Standalone**
+```bash
+# Test workflow de construction
+python test_build_workflow.py
+
+# Construction locale (développeurs)
+python build_standalone.py
+
+# Tests de l'exécutable
+python test_executable.py
+```
+
+**Plus d'infos** : Voir [`BUILD_GUIDE.md`](BUILD_GUIDE.md) pour la documentation complète.
 # Test d'intégration complet
 python tools/test_multibd_integration.py
 

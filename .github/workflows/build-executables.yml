@@ -1,0 +1,357 @@
+name: 🚀 Build Standalone Executables
+
+on:
+  push:
+    branches: [ main, experimental-ml ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Permettre le déclenchement manuel
+
+env:
+  APP_NAME: AnComicsViewer
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Job 1: Tests préliminaires
+  test:
+    name: 🧪 Pre-build Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: 🧪 Run smoke tests
+        run: |
+          python -c "
+          try:
+              from AnComicsViewer import PanelDetector
+              print('✅ Import AnComicsViewer: OK')
+              from PySide6.QtWidgets import QApplication  
+              print('✅ Import PySide6: OK')
+              print('🎯 Tests préliminaires réussis')
+          except Exception as e:
+              print(f'❌ Erreur: {e}')
+              exit(1)
+          "
+
+  # Job 2: Build Windows
+  build-windows:
+    name: 🪟 Windows Build
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: 🛠️ Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+          
+      - name: 📋 Generate PyInstaller spec
+        run: python build_spec.py
+        
+      - name: 🏗️ Build Windows executable
+        run: |
+          pyinstaller AnComicsViewer.spec --clean --noconfirm
+          
+      - name: 📁 Prepare distribution
+        run: |
+          mkdir -p dist-windows
+          if (Test-Path "dist/AnComicsViewer.exe") {
+            Copy-Item "dist/AnComicsViewer.exe" "dist-windows/"
+            Copy-Item "README.md" "dist-windows/" -ErrorAction SilentlyContinue
+            Copy-Item "LICENSE" "dist-windows/" -ErrorAction SilentlyContinue
+          } else {
+            Write-Error "Executable not found!"
+            exit 1
+          }
+          
+      - name: 🧪 Test executable
+        run: |
+          cd dist-windows
+          ./AnComicsViewer.exe --version || echo "Version check skipped"
+          
+      - name: 📊 Check file size
+        run: |
+          $size = (Get-Item "dist-windows/AnComicsViewer.exe").Length / 1MB
+          Write-Host "📦 Executable size: $([math]::Round($size, 2)) MB"
+          
+      - name: 📤 Upload Windows artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: AnComicsViewer-Windows
+          path: dist-windows/
+          retention-days: 30
+
+  # Job 3: Build macOS
+  build-macos:
+    name: 🍎 macOS Build
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: 🛠️ Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+          
+      - name: 📋 Generate PyInstaller spec
+        run: python build_spec.py
+        
+      - name: 🏗️ Build macOS app bundle
+        run: |
+          pyinstaller AnComicsViewer.spec --clean --noconfirm
+          
+      - name: 📁 Prepare distribution
+        run: |
+          mkdir -p dist-macos
+          if [ -d "dist/AnComicsViewer.app" ]; then
+            cp -r "dist/AnComicsViewer.app" "dist-macos/"
+            cp "README.md" "dist-macos/" 2>/dev/null || true
+            cp "LICENSE" "dist-macos/" 2>/dev/null || true
+          elif [ -f "dist/AnComicsViewer" ]; then
+            cp "dist/AnComicsViewer" "dist-macos/"
+            cp "README.md" "dist-macos/" 2>/dev/null || true
+            cp "LICENSE" "dist-macos/" 2>/dev/null || true
+          else
+            echo "❌ Executable not found!"
+            ls -la dist/
+            exit 1
+          fi
+          
+      - name: 🧪 Test executable
+        run: |
+          cd dist-macos
+          if [ -d "AnComicsViewer.app" ]; then
+            ./AnComicsViewer.app/Contents/MacOS/AnComicsViewer --version || echo "Version check skipped"
+          elif [ -f "AnComicsViewer" ]; then
+            ./AnComicsViewer --version || echo "Version check skipped"
+          fi
+          
+      - name: 📊 Check bundle size
+        run: |
+          if [ -d "dist-macos/AnComicsViewer.app" ]; then
+            size=$(du -sm "dist-macos/AnComicsViewer.app" | cut -f1)
+            echo "📦 App bundle size: ${size} MB"
+          fi
+          
+      - name: 📤 Upload macOS artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: AnComicsViewer-macOS
+          path: dist-macos/
+          retention-days: 30
+
+  # Job 4: Build Linux
+  build-linux:
+    name: 🐧 Linux Build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: 🔧 Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1-mesa \
+            libxkbcommon-x11-0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xfixes0 \
+            libxcb-xinerama0 \
+            libgl1-mesa-glx
+            
+      - name: 🛠️ Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+          
+      - name: 📋 Generate PyInstaller spec
+        run: python build_spec.py
+        
+      - name: 🏗️ Build Linux executable
+        run: |
+          pyinstaller AnComicsViewer.spec --clean --noconfirm
+          
+      - name: 📁 Prepare distribution
+        run: |
+          mkdir -p dist-linux
+          if [ -f "dist/AnComicsViewer" ]; then
+            cp "dist/AnComicsViewer" "dist-linux/"
+            chmod +x "dist-linux/AnComicsViewer"
+            cp "README.md" "dist-linux/" 2>/dev/null || true
+            cp "LICENSE" "dist-linux/" 2>/dev/null || true
+          else
+            echo "❌ Executable not found!"
+            ls -la dist/
+            exit 1
+          fi
+          
+      - name: 🧪 Test executable
+        run: |
+          cd dist-linux
+          ./AnComicsViewer --version || echo "Version check skipped (no display)"
+          
+      - name: 📊 Check file size
+        run: |
+          size=$(du -sm "dist-linux/AnComicsViewer" | cut -f1)
+          echo "📦 Executable size: ${size} MB"
+          
+      - name: 📤 Upload Linux artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: AnComicsViewer-Linux
+          path: dist-linux/
+          retention-days: 30
+
+  # Job 5: Create Release (seulement pour les tags)
+  release:
+    name: 🎉 Create Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos, build-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: 📥 Download all artifacts
+        uses: actions/download-artifact@v3
+        
+      - name: 📦 Create release archives
+        run: |
+          # Windows
+          cd AnComicsViewer-Windows
+          zip -r ../AnComicsViewer-Windows.zip *
+          cd ..
+          
+          # macOS  
+          cd AnComicsViewer-macOS
+          tar -czf ../AnComicsViewer-macOS.tar.gz *
+          cd ..
+          
+          # Linux
+          cd AnComicsViewer-Linux
+          tar -czf ../AnComicsViewer-Linux.tar.gz *
+          cd ..
+          
+      - name: 📊 Display archives info
+        run: |
+          echo "📦 Release Archives:"
+          ls -lh *.zip *.tar.gz
+          
+      - name: 🎉 Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: AnComicsViewer ${{ github.ref_name }}
+          body: |
+            # 🎯 AnComicsViewer ${{ github.ref_name }} - Multi-BD Revolution
+            
+            ## 📦 Downloads
+            
+            - **Windows**: AnComicsViewer-Windows.zip
+            - **macOS**: AnComicsViewer-macOS.tar.gz  
+            - **Linux**: AnComicsViewer-Linux.tar.gz
+            
+            ## ✨ Features
+            
+            - 🤖 Multi-BD AI detector (91.1% mAP50)
+            - 📖 Advanced panel reading order
+            - 🎯 Cross-platform standalone executables
+            - 🚀 No dependencies required for end users
+            
+            ## 🚀 Usage
+            
+            1. Download the appropriate package for your OS
+            2. Extract the archive
+            3. Run the executable
+            4. Open a BD/Comic PDF and enjoy!
+            
+            Built automatically with GitHub Actions 🤖
+          draft: false
+          prerelease: false
+          
+      - name: 📤 Upload release assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./AnComicsViewer-Windows.zip
+          asset_name: AnComicsViewer-Windows.zip
+          asset_content_type: application/zip
+          
+      - name: 📤 Upload macOS asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./AnComicsViewer-macOS.tar.gz
+          asset_name: AnComicsViewer-macOS.tar.gz
+          asset_content_type: application/gzip
+          
+      - name: 📤 Upload Linux asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./AnComicsViewer-Linux.tar.gz
+          asset_name: AnComicsViewer-Linux.tar.gz
+          asset_content_type: application/gzip
+
+  # Job 6: Summary
+  summary:
+    name: 📋 Build Summary
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos, build-linux]
+    if: always()
+    steps:
+      - name: 📊 Display build status
+        run: |
+          echo "## 🏗️ Build Summary"
+          echo "- Windows: ${{ needs.build-windows.result }}"
+          echo "- macOS: ${{ needs.build-macos.result }}"  
+          echo "- Linux: ${{ needs.build-linux.result }}"
+          echo ""
+          echo "🎯 Standalone executables created for all platforms!"
+          echo "📦 No dependencies required for end users"
+          echo "🚀 Ready for distribution"

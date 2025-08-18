@@ -1,0 +1,28 @@
+{
+  "name": "AnComicsViewer",
+  "version": "v2.0.0-5-gada3b5e",
+  "git_version": "v2.0.0-5-gada3b5e",
+  "commit_hash": "ada3b5e",
+  "is_release": true,
+  "assets": [
+    {
+      "name": "AnComicsViewer-Windows.zip",
+      "path": "AnComicsViewer-Windows.zip",
+      "content_type": "application/zip",
+      "platform": "Windows"
+    },
+    {
+      "name": "AnComicsViewer-macOS.tar.gz",
+      "path": "AnComicsViewer-macOS.tar.gz",
+      "content_type": "application/gzip",
+      "platform": "macOS"
+    },
+    {
+      "name": "AnComicsViewer-Linux.tar.gz",
+      "path": "AnComicsViewer-Linux.tar.gz",
+      "content_type": "application/gzip",
+      "platform": "Linux"
+    }
+  ],
+  "release_notes": "# 🎯 AnComicsViewer v2.0.0-5-gada3b5e - Multi-BD Revolution\n\n## 📦 **Downloads**\n\nChoose the right package for your operating system:\n\n- 🪟 **Windows** (64-bit): `AnComicsViewer-Windows.zip`\n- 🍎 **macOS** (Intel/Apple Silicon): `AnComicsViewer-macOS.tar.gz`  \n- 🐧 **Linux** (64-bit): `AnComicsViewer-Linux.tar.gz`\n\n## 🚀 **Quick Start**\n\n### Windows\n1. Download `AnComicsViewer-Windows.zip`\n2. Extract the archive\n3. Double-click `AnComicsViewer.exe`\n\n### macOS\n1. Download `AnComicsViewer-macOS.tar.gz`\n2. Extract the archive  \n3. Double-click `AnComicsViewer.app`\n\n### Linux\n1. Download `AnComicsViewer-Linux.tar.gz`\n2. Extract: `tar -xzf AnComicsViewer-Linux.tar.gz`\n3. Run: `./AnComicsViewer`\n\n## ✨ **Features**\n\n### 🤖 **AI-Powered Multi-BD Detection**\n- **91.1% mAP50 accuracy** on multi-style comic dataset\n- **3 BD styles supported**: Golden City, Tintin, Pin-up du B24\n- **Real-time processing**: ~35ms per page\n- **Zero configuration**: Optimized parameters out-of-the-box\n\n### 📖 **Advanced Reading Experience**\n- **Smart panel navigation** with cross-page support\n- **Intelligent reading order** (AR-A to AR-E improvements)\n- **Title zone detection** with complete chapter text handling\n- **Panel-by-panel zoom** for immersive reading\n\n### 🔧 **Technical Excellence**\n- **Standalone executables**: No dependencies required\n- **Cross-platform**: Windows, macOS, Linux support\n- **Modular architecture**: Swappable detectors\n- **Professional UI**: Native PySide6 interface\n\n## 🎯 **What's New in vv2.0.0-5-gada3b5e**\n\n### 🆕 **AR-A to AR-E Reading Improvements**\n- ✅ Intelligent row grouping with `row_band_frac` parameter\n- ✅ Natural reading order respecting panel layout\n- ✅ Enhanced title zone detection (28% of page height)\n- ✅ Franco-Belge preset optimization\n\n### 🤖 **Multi-BD Enhanced Detector**\n- ✅ Smart title/panel differentiation\n- ✅ Optimized parameters (conf=0.15, iou=0.4)\n- ✅ Advanced post-processing filters\n- ✅ Real-time parameter tuning interface\n\n### 🚀 **Model Retraining Success**\n- ✅ 50 annotated images from 3 BD series\n- ✅ 377 annotations with 2 classes (panel, panel_inset)\n- ✅ Excellent performance: 91.1% mAP50, 88.3% mAP50-95\n- ✅ Production-ready model deployment\n\n## 🔧 **System Requirements**\n\n**Standalone Executables (Recommended)**:\n- No additional software required\n- Estimated disk space: ~150-200 MB per platform\n\n**From Source (Developers)**:\n- Python 3.8+ \n- Operating System: Windows 10+, macOS 10.15+, Ubuntu 18.04+\n\n## 🛠️ **Advanced Usage**\n\n### 🎯 **Panel Detection Options**\n1. **Heuristic (OpenCV)**: Fast, rule-based detection\n2. **Multi-BD (Trained)**: AI-powered, high accuracy ⭐\n3. **Multi-BD Enhanced**: With smart post-processing ✨\n\n### ⚙️ **Customization**\n- **Panel Tuning**: Fine-tune detection parameters\n- **Reading Order**: Adjust row grouping tolerance\n- **Presets**: Franco-Belge, Manga, Custom configurations\n\n## 🐛 **Known Issues & Solutions**\n\n### **If the app doesn't start**:\n- Windows: Check Windows Defender/Antivirus settings\n- macOS: Right-click → Open (bypass Gatekeeper)\n- Linux: Ensure executable permissions: `chmod +x AnComicsViewer`\n\n### **Performance tips**:\n- Use SSD storage for best performance\n- Close other applications for large PDF files\n- Use Multi-BD Enhanced for best accuracy\n\n## 📊 **Performance Metrics**\n\n| Metric | Value | Description |\n|--------|-------|-------------|\n| **Accuracy** | 91.1% mAP50 | Panel detection precision |\n| **Speed** | ~35ms/page | Processing time |\n| **Styles** | 3 BD series | Supported comic styles |\n| **Size** | ~150MB | Standalone executable |\n\n## 🤝 **Support & Feedback**\n\n- 📘 **Documentation**: [GitHub Wiki](https://github.com/r45635/AnComicsViewer/wiki)\n- 🐛 **Bug Reports**: [Issues](https://github.com/r45635/AnComicsViewer/issues)\n- 💡 **Feature Requests**: [Discussions](https://github.com/r45635/AnComicsViewer/discussions)\n- 📧 **Contact**: Create an issue for support\n\n## 🏆 **Credits**\n\n- **YOLOv8** (Ultralytics) - Object detection framework\n- **PySide6** (Qt) - Cross-platform GUI framework  \n- **OpenCV** - Computer vision library\n- **PyTorch** - Machine learning backend\n\n---\n\n**Build Info**: \n- Version: `v2.0.0-5-gada3b5e`\n- Commit: `ada3b5e`\n- Built with: GitHub Actions automated pipeline\n\n🎯 **AnComicsViewer - Revolutionizing comic reading with AI!** 🚀"
+}

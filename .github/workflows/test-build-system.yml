@@ -1,0 +1,58 @@
+name: 🧪 Test Build System
+
+on:
+  push:
+    paths:
+      - 'build_*.py'
+      - 'test_*.py'
+      - '.github/workflows/build-executables.yml'
+      - 'AnComicsViewer.py'
+      - 'main.py'
+  pull_request:
+    paths:
+      - 'build_*.py'
+      - 'test_*.py'
+      - '.github/workflows/build-executables.yml'
+  workflow_dispatch:
+
+jobs:
+  test-build-system:
+    name: 🔧 Test Build Scripts
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.11']
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          
+      - name: 🧪 Test build workflow
+        run: python test_build_workflow.py
+        
+      - name: 📋 Test spec generation
+        run: python build_spec.py
+        
+      - name: 🔍 Test release config
+        run: python release_config.py
+        
+      - name: 📊 Show build readiness
+        run: |
+          echo "## 🏗️ Build System Status"
+          echo "- OS: ${{ matrix.os }}"
+          echo "- Python: ${{ matrix.python-version }}"
+          echo "- PyInstaller: $(python -m PyInstaller --version)"
+          echo "- Spec file: $(test -f AnComicsViewer.spec && echo '✅ Present' || echo '❌ Missing')"
+          echo "- Release config: $(test -f release_config.json && echo '✅ Present' || echo '❌ Missing')"
