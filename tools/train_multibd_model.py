@@ -4,14 +4,21 @@ Test et entraînement du modèle sur le dataset multi-BD enrichi
 """
 
 import sys
-sys.path.append("..")
+import os
 from pathlib import Path
+
+# Changer vers le répertoire racine pour les chemins relatifs
+script_dir = Path(__file__).parent
+root_dir = script_dir.parent
+os.chdir(root_dir)
+sys.path.append(str(root_dir))
+
 from ultralytics import YOLO
 import shutil
 import subprocess
 
 # Appliquer le patch PyTorch dès le début
-exec(open("../patch_pytorch.py").read())
+exec(open("patch_pytorch.py").read())
 
 def convert_dataset_to_yolo():
     """Convertit le dataset LabelMe en format YOLO."""
@@ -20,19 +27,50 @@ def convert_dataset_to_yolo():
     print("=" * 35)
     
     try:
-        # Utiliser notre script de conversion existant
-        from labelme_to_yolo import main as convert_main
+        # Vérifier la présence des fichiers source
+        images_dir = Path("dataset/images/train")
+        labels_dir = Path("dataset/labels/train")
         
-        print("📁 Conversion des annotations LabelMe vers YOLO...")
+        if not images_dir.exists():
+            print(f"❌ Dossier images non trouvé: {images_dir}")
+            return False
+            
+        if not labels_dir.exists():
+            print(f"❌ Dossier labels non trouvé: {labels_dir}")
+            return False
         
-        # Lancer la conversion
-        convert_main()
+        # Compter les fichiers disponibles
+        images = list(images_dir.glob("*.png"))
+        json_files = list(labels_dir.glob("*.json"))
+        
+        print(f"📸 Images trouvées: {len(images)}")
+        print(f"🏷️  Annotations JSON: {len(json_files)}")
+        
+        if len(json_files) == 0:
+            print("❌ Aucune annotation JSON trouvée!")
+            return False
+        
+        # Utiliser notre script de conversion existant directement
+        print("📁 Lancement de la conversion LabelMe vers YOLO...")
+        
+        # Importer et exécuter la conversion directement
+        sys.path.append("tools")
+        import labelme_to_yolo
+        
+        # Appeler la fonction de conversion directement
+        success = labelme_to_yolo.convert_labelme_to_yolo()
+        
+        if not success:
+            print("❌ Échec de la conversion")
+            return False
         
         print("✅ Conversion terminée!")
         return True
         
     except Exception as e:
         print(f"❌ Erreur conversion: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def analyze_yolo_dataset():

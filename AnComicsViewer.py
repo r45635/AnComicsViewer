@@ -201,6 +201,9 @@ class PanelDetector:
         self.title_row_big_min_boxes = 2    # cas B : "peu de gros"
         self.title_row_big_w_min_frac = 0.16
         self.title_row_min_meanL  = 0.88  # row is globally bright (0..1 after /255)
+        
+        # --- reading order parameters ---
+        self.row_band_frac = 0.06  # 6% of page height for row grouping tolerance
 
     # --- Heuristic main ---
     def detect_panels(self, qimage, page_point_size):
@@ -218,6 +221,7 @@ class PanelDetector:
                 f"mk={self.morph_kernel} mi={self.morph_iter}",
                 f"min_area={self.min_area_pct:.3f} max_area={self.max_area_pct:.2f}",
                 f"min_fill={self.min_fill_ratio:.2f} min_px={self.min_rect_px}",
+                f"row_band={self.row_band_frac:.3f}",
                 f"light_col={self.light_col_rel:.2f} light_row={self.light_row_rel:.2f}",
                     f"gutter:min_px={self.min_gutter_px} cov>={self.gutter_cov_min:.2f} max_frac={self.max_gutter_px_frac:.2f}",
                     f"title: on={self.filter_title_rows} top<{self.title_row_top_frac:.2f} h<{self.title_row_max_h_frac:.2f} boxes>={self.title_row_min_boxes} L>={self.title_row_min_meanL:.2f}",
@@ -268,11 +272,8 @@ class PanelDetector:
                 rects = self._filter_title_rows(L, rects, w, h, page_point_size)
                 pdebug(f"After title-row filter -> {len(rects)} rects")
 
-            # Ordre de lecture
-            if self.reading_rtl:
-                rects.sort(key=lambda r: (r.top(), -r.left()))
-            else:
-                rects.sort(key=lambda r: (r.top(), r.left()))
+            # Ordre de lecture avec groupement par rangées
+            rects = self._sort_reading_order(rects, page_point_size)
             return rects
 
         except Exception:
@@ -630,6 +631,36 @@ class PanelDetector:
                 start = None
         return runs
 
+    def _sort_reading_order(self, rects: List[QRectF], page_point_size: QSizeF) -> List[QRectF]:
+        """Sort panels by reading order: group into rows, then sort by horizontal position."""
+        if not rects: 
+            return rects
+        H = float(page_point_size.height()) if page_point_size.height() > 0 else 1.0
+        band = max(8.0, H * float(getattr(self, "row_band_frac", 0.06)))
+        rows = []  # [{ "y": float, "items": List[QRectF] }]
+        for r in rects:
+            y = r.top()
+            placed = False
+            for row in rows:
+                if abs(y - row["y"]) <= band:
+                    row["items"].append(r)
+                    row["y"] = min(row["y"], y)  # ancre sur le plus haut
+                    placed = True
+                    break
+            if not placed:
+                rows.append({"y": y, "items": [r]})
+        rows.sort(key=lambda rr: rr["y"])
+        ordered: List[QRectF] = []
+        if self.reading_rtl:
+            for row in rows:
+                row["items"].sort(key=lambda rr: (-rr.left(), rr.top()))
+                ordered.extend(row["items"])
+        else:
+            for row in rows:
+                row["items"].sort(key=lambda rr: (rr.left(), rr.top()))
+                ordered.extend(row["items"])
+        return ordered
+
 
 # -----------------------------
 # Custom PDF View with Panning, Zoom-on-wheel, and Panel Overlay
@@ -864,6 +895,8 @@ class PanelTuningDialog(QDialog):
         form.addRow("Max gutter frac", self.w_maxgf)
         form.addRow("Edge margin frac", self.w_emf)
         form.addRow("Max panels / page", self.w_maxp)
+        self.w_rowband = dsb(getattr(det, "row_band_frac", 0.06), 0.01, 0.20, 0.005)
+        form.addRow("Row band frac", self.w_rowband)
         form.addRow("Proj. smooth (odd px)", self.w_psk)
 
         # Title-row
@@ -920,6 +953,7 @@ class PanelTuningDialog(QDialog):
         d.max_gutter_px_frac = float(self.w_maxgf.value())
         d.edge_margin_frac = float(self.w_emf.value())
         d.max_panels_per_page = int(self.w_maxp.value())
+        d.row_band_frac = float(self.w_rowband.value())
         # Projection smoothing kernel (forcer impair)
         d.proj_smooth_k = int(self.w_psk.value()) | 1
         # Title row
@@ -1117,7 +1151,10 @@ class ComicsView(QMainWindow):
         act_heur = det_menu.addAction("Heuristic (OpenCV)"); act_heur.setCheckable(True); act_heur.setChecked(True)
         act_ml   = det_menu.addAction("YOLOv8 Seg (ML)");    act_ml.setCheckable(True)
         act_multibd = det_menu.addAction("Multi-BD (Trained)"); act_multibd.setCheckable(True)
+        act_multibd_improved = det_menu.addAction("Multi-BD Enhanced"); act_multibd_improved.setCheckable(True)
+        det_menu.addSeparator()
         act_load = det_menu.addAction("Load ML weights…")
+        act_tune_multibd = det_menu.addAction("Tune Multi-BD parameters...")
 
         def _switch_heur():
             from AnComicsViewer import PanelDetector as Heur
@@ -1156,7 +1193,196 @@ class ComicsView(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Multi-BD Error", f"Échec chargement détecteur Multi-BD:\\n{str(e)}")
                 # Revert to heuristic
-                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False)
+                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False); act_multibd_improved.setChecked(False)
+
+        def _switch_multibd_improved():
+            try:
+                # Import du détecteur amélioré
+                try:
+                    from detectors.multibd_detector import MultiBDPanelDetector
+                except ImportError as e:
+                    if "matplotlib" in str(e):
+                        QMessageBox.critical(self, "Dépendance manquante", 
+                            "❌ Module matplotlib requis pour Multi-BD\n\n"
+                            "💡 Solutions:\n"
+                            "1. Installer: pip install matplotlib\n"
+                            "2. Ou utiliser: .venv/bin/pip install matplotlib\n"
+                            "3. Ou lancer via: ./run.sh (auto-install)\n\n"
+                            "🔄 Retour au détecteur Heuristique")
+                        act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False); act_multibd_improved.setChecked(False)
+                        return
+                    else:
+                        raise e
+                
+                # Classe améliorée intégrée
+                class ImprovedMultiBDDetector(MultiBDPanelDetector):
+                    def __init__(self, **kwargs):
+                        super().__init__(conf=0.15, iou=0.4, **kwargs)  # Paramètres optimisés
+                        
+                    def detect_panels(self, qimage, page_point_size):
+                        raw_panels = super().detect_panels(qimage, page_point_size)
+                        if not raw_panels:
+                            return []
+                            
+                        filtered = []
+                        page_height = page_point_size.height()
+                        page_width = page_point_size.width()
+                        page_area = page_width * page_height
+                        
+                        for panel in raw_panels:
+                            # Filtrer zone titre (25% du haut)
+                            if panel.y() < page_height * 0.25:
+                                aspect_ratio = panel.width() / panel.height()
+                                if aspect_ratio > 4.0:  # Ligne de texte probable
+                                    continue
+                                if panel.width() < page_width * 0.3:  # Trop étroit pour titre zone
+                                    continue
+                                    
+                            # Filtrer par taille (0.8% minimum de la page)
+                            if panel.width() * panel.height() < page_area * 0.008:
+                                continue
+                                
+                            # Filtrer par ratio aspect anormal
+                            aspect_ratio = panel.width() / panel.height()
+                            if aspect_ratio > 4.0 or aspect_ratio < 0.2:
+                                continue
+                                
+                            filtered.append(panel)
+                        
+                        return filtered
+                
+                self._panel_detector = ImprovedMultiBDDetector()
+                act_multibd_improved.setChecked(True)
+                act_heur.setChecked(False); act_ml.setChecked(False); act_multibd.setChecked(False)
+                self._apply_panel_tuning(self._det_dpi)
+                
+                # Message d'information
+                QMessageBox.information(self, "Multi-BD Enhanced", 
+                    "✅ Détecteur Multi-BD Amélioré activé!\n\n"
+                    "🎯 Améliorations:\n"
+                    "• Filtrage intelligent des zones de titre\n"
+                    "• Paramètres optimisés (conf=0.15, iou=0.4)\n"
+                    "• Post-traitement par ratio aspect\n"
+                    "• Réduction des faux positifs\n\n"
+                    "💡 Basé sur le diagnostic automatique du modèle")
+            except Exception as e:
+                QMessageBox.critical(self, "Enhanced Multi-BD Error", f"Échec chargement détecteur amélioré:\\n{str(e)}")
+                # Revert to heuristic
+                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False); act_multibd_improved.setChecked(False)
+
+        def _tune_multibd_params():
+            # Dialog simple pour ajuster les paramètres Multi-BD
+            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton
+            from PySide6.QtCore import Qt
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Multi-BD Parameters Tuning")
+            dialog.resize(400, 200)
+            
+            layout = QVBoxLayout(dialog)
+            
+            # Confidence slider
+            conf_layout = QHBoxLayout()
+            conf_layout.addWidget(QLabel("Confidence:"))
+            conf_slider = QSlider()
+            conf_slider.setOrientation(Qt.Orientation.Horizontal)
+            conf_slider.setRange(5, 50)  # 0.05 à 0.50
+            conf_slider.setValue(20)  # 0.20
+            conf_label = QLabel("0.20")
+            conf_layout.addWidget(conf_slider)
+            conf_layout.addWidget(conf_label)
+            layout.addLayout(conf_layout)
+            
+            # IoU slider  
+            iou_layout = QHBoxLayout()
+            iou_layout.addWidget(QLabel("IoU Threshold:"))
+            iou_slider = QSlider()
+            iou_slider.setOrientation(Qt.Orientation.Horizontal)
+            iou_slider.setRange(20, 80)  # 0.20 à 0.80
+            iou_slider.setValue(50)  # 0.50
+            iou_label = QLabel("0.50")
+            iou_layout.addWidget(iou_slider)
+            iou_layout.addWidget(iou_label)
+            layout.addLayout(iou_layout)
+            
+            # Update labels
+            def update_conf():
+                val = conf_slider.value() / 100.0
+                conf_label.setText(f"{val:.2f}")
+            def update_iou():
+                val = iou_slider.value() / 100.0
+                iou_label.setText(f"{val:.2f}")
+                
+            conf_slider.valueChanged.connect(update_conf)
+            iou_slider.valueChanged.connect(update_iou)
+            
+            # Buttons
+            btn_layout = QHBoxLayout()
+            apply_btn = QPushButton("Apply")
+            cancel_btn = QPushButton("Cancel")
+            btn_layout.addWidget(apply_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+            
+            def apply_params():
+                # Pour la classe améliorée, on recrée l'instance avec les nouveaux paramètres
+                if hasattr(self._panel_detector, '__class__') and 'ImprovedMultiBDDetector' in str(self._panel_detector.__class__):
+                    conf_val = conf_slider.value() / 100.0
+                    iou_val = iou_slider.value() / 100.0
+                    try:
+                        # Recrée le détecteur avec les nouveaux paramètres
+                        from detectors.multibd_detector import MultiBDPanelDetector
+                        
+                        class ImprovedMultiBDDetector(MultiBDPanelDetector):
+                            def __init__(self, **kwargs):
+                                super().__init__(conf=conf_val, iou=iou_val, **kwargs)
+                                
+                            def detect_panels(self, qimage, page_point_size):
+                                raw_panels = super().detect_panels(qimage, page_point_size)
+                                if not raw_panels:
+                                    return []
+                                    
+                                filtered = []
+                                page_height = page_point_size.height()
+                                page_width = page_point_size.width()
+                                page_area = page_width * page_height
+                                
+                                for panel in raw_panels:
+                                    # Filtrer zone titre (25% du haut)
+                                    if panel.y() < page_height * 0.25:
+                                        aspect_ratio = panel.width() / panel.height()
+                                        if aspect_ratio > 4.0:  # Ligne de texte probable
+                                            continue
+                                        if panel.width() < page_width * 0.3:  # Trop étroit pour titre zone
+                                            continue
+                                            
+                                    # Filtrer par taille (0.8% minimum de la page)
+                                    if panel.width() * panel.height() < page_area * 0.008:
+                                        continue
+                                        
+                                    # Filtrer par ratio aspect anormal
+                                    aspect_ratio = panel.width() / panel.height()
+                                    if aspect_ratio > 4.0 or aspect_ratio < 0.2:
+                                        continue
+                                        
+                                    filtered.append(panel)
+                                
+                                return filtered
+                        
+                        self._panel_detector = ImprovedMultiBDDetector()
+                        self._apply_panel_tuning(self._det_dpi)
+                        dialog.accept()
+                        QMessageBox.information(self, "Parameters Updated", 
+                            f"Paramètres mis à jour:\nConfidence: {conf_val:.2f}\nIoU: {iou_val:.2f}")
+                    except Exception as e:
+                        QMessageBox.critical(self, "Update Error", f"Erreur mise à jour paramètres:\n{str(e)}")
+                else:
+                    QMessageBox.warning(self, "Not Supported", "Le détecteur actuel ne supporte pas cette fonctionnalité.\nUtilisez le détecteur Multi-BD Amélioré d'abord.")
+            
+            apply_btn.clicked.connect(apply_params)
+            cancel_btn.clicked.connect(dialog.reject)
+            
+            dialog.exec()
 
         def _load_weights():
             p, _ = QFileDialog.getOpenFileName(self, "Load YOLO weights", self._default_dir(), "PT files (*.pt)")
@@ -1165,6 +1391,8 @@ class ComicsView(QMainWindow):
         act_heur.triggered.connect(_switch_heur)
         act_ml.triggered.connect(_switch_ml)
         act_multibd.triggered.connect(_switch_multibd)
+        act_multibd_improved.triggered.connect(_switch_multibd_improved)
+        act_tune_multibd.triggered.connect(_tune_multibd_params)
         act_load.triggered.connect(_load_weights)
 
         # Advanced tuning dialog
@@ -1193,8 +1421,11 @@ class ComicsView(QMainWindow):
                 d.min_gutter_px, d.max_gutter_px_frac = 8, 0.06
                 d.edge_margin_frac = 0.03
                 d.filter_title_rows = True
-                d.title_row_top_frac, d.title_row_max_h_frac = 0.20, 0.12
-                d.title_row_min_boxes, d.title_row_min_meanL = 4, 0.80
+                d.title_row_top_frac, d.title_row_max_h_frac = 0.28, 0.18
+                d.title_row_min_boxes, d.title_row_min_meanL = 2, 0.88
+                d.title_row_median_w_frac_max = 0.30
+                setattr(d, "row_band_frac", 0.06)
+                setattr(d, "proj_smooth_k", 29)
                 d.max_panels_per_page = 20
                 d.reading_rtl = False
             elif name == "Manga":
@@ -1368,12 +1599,11 @@ class ComicsView(QMainWindow):
         except Exception:
             pass
         try:
-            if hasattr(QPdfDocument.Error, "NoError") and err == QPdfDocument.Error.NoError:
+            # Simple check: if err is 0 or has value 0, consider success
+            if err == 0 or str(err) == "0" or getattr(err, "value", None) == 0:
                 success = True
         except Exception:
             pass
-        if err == 0 or getattr(err, "value", 0) == 0:
-            success = True
 
         if not success or doc.pageCount() <= 0:
             QMessageBox.critical(self, "Load Error", "Failed to load PDF (corrupted/unsupported).")
