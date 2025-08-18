@@ -32,22 +32,41 @@
 # Python 3.8+ requis
 python --version
 
+# Création environnement virtuel (recommandé)
+python -m venv .venv
+
 # Installation dépendances
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-ml.txt
 ```
 
 ### 🚀 **Lancement**
-```bash
-# Démarrage simple
-python AnComicsViewer.py
 
-# Activer le détecteur Multi-BD
-# Menu ⚙️ → Detector → Multi-BD (Trained)
+#### 🎯 **Méthode recommandée - Script automatique**
+```bash
+# Linux/macOS
+./run.sh
+
+# Windows PowerShell
+.\run.ps1
+
+# Ou directement avec Python
+python main.py
+```
+
+#### 🔧 **Lancement manuel**
+```bash
+# Avec environnement virtuel
+.venv/bin/python main.py        # Linux/macOS
+.venv\Scripts\python main.py    # Windows
+
+# Ou directement (non recommandé)
+python AnComicsViewer.py
 ```
 
 ### 🎯 **Utilisation**
-1. **Ouvrir PDF** : File → Open
-2. **Activer Multi-BD** : ⚙️ → Detector → Multi-BD (Trained)  
+1. **Ouvrir PDF** : File → Open ou glisser-déposer
+2. **Activer Multi-BD** : ⚙️ → Detector → Multi-BD (Trained)
+3. **Navigation panels** : Touches `N` et `Shift+N`  
 3. **Naviguer** : Flèches ou clic sur panels
 4. **Zoomer** : Molette ou raccourcis
 

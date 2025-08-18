@@ -65,6 +65,7 @@ from PySide6.QtGui import (
     QColor,
     QPen,
     QImage,
+    QIcon,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -963,8 +964,11 @@ class PanelTuningDialog(QDialog):
 class ComicsView(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ComicsView — PDF Reader")
+        self.setWindowTitle("AnComicsViewer — Lecteur PDF Comics Intelligent")
         self.resize(980, 1000)
+
+        # Configurer l'icône de l'application
+        self._setup_window_icon()
 
         # Core state
         self.document: Optional[QPdfDocument] = None
@@ -1003,6 +1007,28 @@ class ComicsView(QMainWindow):
         # Hooks
         self.view.pageNavigator().currentPageChanged.connect(self._on_page_changed)
         self.view.pageNavigator().currentPageChanged.connect(self._update_status)
+
+    def _setup_window_icon(self):
+        """Configure l'icône de la fenêtre."""
+        try:
+            # Essayer d'utiliser l'icône configurée par main.py
+            icon_path = os.environ.get('ANCOMICSVIEWER_ICON')
+            if not icon_path:
+                # Fallback vers l'icône locale
+                icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+            
+            if os.path.exists(icon_path):
+                icon = QIcon(icon_path)
+                self.setWindowIcon(icon)
+                # Configurer aussi l'icône de l'application
+                app = QGuiApplication.instance()
+                if app and hasattr(app, 'setWindowIcon'):
+                    app.setWindowIcon(icon)
+                pdebug(f"Window icon set: {icon_path}")
+            else:
+                pdebug(f"Icon not found: {icon_path}")
+        except Exception as e:
+            pdebug(f"Failed to set window icon: {e}")
 
     # ---------- UI ----------
     def _build_toolbar(self):

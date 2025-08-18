@@ -17,4 +17,4 @@ if ! .venv/bin/pip show matplotlib >/dev/null 2>&1; then
 fi
 
 echo "🚀 Lancement d'AnComicsViewer avec l'environnement virtuel..."
-.venv/bin/python AnComicsViewer.py
+.venv/bin/python main.py
