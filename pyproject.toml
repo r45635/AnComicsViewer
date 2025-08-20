@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ancomicsviewer"
+dynamic = ["version"]
+description = "Lecteur PDF intelligent pour bandes dessinées avec détection ML de cases"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Vincent Cruvellier", email = "vincent@example.com"},
+]
+keywords = ["pdf", "comics", "viewer", "panel", "detection", "machine learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "PySide6>=6.0.0",
+    "numpy>=1.20.0",
+    "opencv-python>=4.5.0",
+    "Pillow>=8.0.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "ultralytics>=8.3.0",
+    "torch>=2.0.0",
+    "matplotlib>=3.5.0",
+]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+    "pre-commit",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/r45635/AnComicsViewer"
+"Bug Reports" = "https://github.com/r45635/AnComicsViewer/issues"
+"Source" = "https://github.com/r45635/AnComicsViewer"
+"Documentation" = "https://github.com/r45635/AnComicsViewer/tree/main/docs"
+
+[project.scripts]
+ancomicsviewer = "ancomicsviewer:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ancomicsviewer = ["assets/*"]
+
+[tool.setuptools_scm]
+write_to = "src/ancomicsviewer/_version.py"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

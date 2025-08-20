@@ -1,0 +1,20 @@
+# Multi-BD Enhanced Dataset Configuration
+# Generated on /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer
+
+path: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/yolo
+train: images/train
+val: images/val
+
+# Classes
+names:
+  0: panel
+  1: panel_inset
+
+# Dataset info
+nc: 2  # number of classes
+total_images: 97
+train_images: 68
+val_images: 29
+
+# Training hyperparameters (optimized for panel detection)
+# Use with: yolo train data=this_config.yaml model=yolov8n.pt epochs=100

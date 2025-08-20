@@ -14,6 +14,7 @@ Repository: https://github.com/r45635/AnComicsViewer
 
 import os
 import sys
+import argparse
 import subprocess
 from pathlib import Path
 
@@ -70,13 +71,71 @@ def check_environment():
     
     return errors
 
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        prog="AnComicsViewer",
+        description="Lecteur PDF pour bandes dessinées avec détection intelligente de cases",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemples d'utilisation:
+  python main.py                                    # Interface graphique normale
+  python main.py --preset fb mycomics.pdf           # Ouvrir avec preset Franco-Belge
+  python main.py --detector multibd --page 5        # Commencer à la page 5 avec Multi-BD
+  python main.py --dpi 300 --preset manga file.pdf # Manga haute résolution
+
+Variables d'environnement supportées:
+  ANCOMICS_PRESET   : fb|manga|newspaper
+  ANCOMICS_DETECTOR : heur|yolo|multibd
+  ANCOMICS_DPI      : résolution de détection (100-400)
+  ANCOMICS_PDF      : chemin du fichier PDF à ouvrir
+  ANCOMICS_PAGE     : page de démarrage (0-based)
+        """
+    )
+    
+    parser.add_argument("pdf_file", nargs="?", help="Fichier PDF à ouvrir au démarrage")
+    parser.add_argument("--version", action="version", version=f"AnComicsViewer {get_version()}")
+    
+    # Options de configuration
+    parser.add_argument("--preset", choices=["fb", "manga", "newspaper"], 
+                       help="Preset de détection (fb=Franco-Belge, manga=Japonais, newspaper=US)")
+    parser.add_argument("--detector", choices=["heur", "yolo", "multibd"], 
+                       help="Type de détecteur (heur=Heuristique, yolo=YOLO, multibd=Multi-BD)")
+    parser.add_argument("--dpi", type=int, metavar="N", 
+                       help="Résolution de détection (100-400, défaut: 200)")
+    parser.add_argument("--page", type=int, metavar="N", default=0,
+                       help="Page de démarrage (0-based, défaut: 0)")
+    
+    return parser.parse_args()
+
+def setup_environment(args):
+    """Configure environment variables from command line arguments."""
+    if args.preset:
+        os.environ["ANCOMICS_PRESET"] = args.preset
+    if args.detector:
+        os.environ["ANCOMICS_DETECTOR"] = args.detector
+    if args.dpi:
+        os.environ["ANCOMICS_DPI"] = str(args.dpi)
+    if args.pdf_file:
+        os.environ["ANCOMICS_PDF"] = args.pdf_file
+    if args.page > 0:
+        os.environ["ANCOMICS_PAGE"] = str(args.page)
+
+
 def main():
-    """Point d'entrée principal d'AnComicsViewer."""
+    """Point d'entrée principal avec gestion des arguments."""
+    # Analyser les arguments de ligne de commande
+    args = parse_arguments()
+    
+    # Configurer les variables d'environnement depuis les arguments
+    setup_environment(args)
     
     print("🎨 AnComicsViewer - Lecteur PDF Comics Intelligent")
     print(f"📦 Version: {get_version()}")
     print(f"🐍 Python: {sys.version.split()[0]}")
     print(f"📁 Répertoire: {SCRIPT_DIR}")
+    if args.pdf_file:
+        print(f"📂 Fichier: {args.pdf_file}")
     print("-" * 60)
     
     # Vérification de l'environnement
@@ -99,11 +158,14 @@ def main():
         os.environ['ANCOMICSVIEWER_ICON'] = str(SCRIPT_DIR / "icon.ico")
         
         # Importer et lancer AnComicsViewer
-        from AnComicsViewer import main as app_main
+        from src.ancomicsviewer import main as app_main
         
         print("✅ Interface utilisateur initialisée")
         print("📖 Prêt à ouvrir des fichiers PDF!")
-        print("💡 Utilisez Ctrl+O pour ouvrir un fichier ou glissez-déposez")
+        if args.pdf_file:
+            print(f"📂 Ouverture de: {args.pdf_file}")
+        else:
+            print("💡 Utilisez Ctrl+O pour ouvrir un fichier ou glissez-déposez")
         
         return app_main()
         

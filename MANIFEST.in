@@ -1,0 +1,43 @@
+# AnComicsViewer Package Manifest
+
+# Include documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+recursive-include docs *.md *.rst *.txt
+
+# Include assets
+recursive-include assets *
+recursive-include src/ancomicsviewer/assets *
+
+# Include requirements
+include requirements.txt
+include requirements-ml.txt
+
+# Include configuration files
+include pyproject.toml
+include setup.py
+
+# Include scripts for development
+recursive-include scripts *.py *.sh *.ps1
+
+# Include example data (but not full datasets)
+recursive-include data/examples *.pdf
+recursive-include data/models *.pt *.yaml
+
+# Exclude development and build artifacts
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude .git*
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude .pytest_cache
+global-exclude .coverage
+global-exclude .venv
+global-exclude build
+global-exclude dist
+global-exclude *.egg-info
+global-exclude runs
+global-exclude dataset
