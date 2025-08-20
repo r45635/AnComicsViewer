@@ -155,7 +155,14 @@ def main():
         print("🚀 Chargement de l'application...")
         
         # Configurer l'icône pour l'application
-        os.environ['ANCOMICSVIEWER_ICON'] = str(SCRIPT_DIR / "icon.ico")
+        icon_path = SCRIPT_DIR / "assets" / "icon.ico"
+        if icon_path.exists():
+            os.environ['ANCOMICSVIEWER_ICON'] = str(icon_path)
+        else:
+            # Fallback to old location or skip
+            old_icon = SCRIPT_DIR / "icon.ico"
+            if old_icon.exists():
+                os.environ['ANCOMICSVIEWER_ICON'] = str(old_icon)
         
         # Importer et lancer AnComicsViewer
         from src.ancomicsviewer import main as app_main

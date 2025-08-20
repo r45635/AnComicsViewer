@@ -7,6 +7,8 @@ from typing import List
 import numpy as np
 import cv2
 import torch
+import os
+from pathlib import Path
 
 # Set matplotlib backend to avoid GUI issues
 import matplotlib
@@ -78,15 +80,24 @@ class MultiBDPanelDetector(BasePanelDetector):
             print(f"✅ Multi-BD Enhanced v2.0 chargé : {weights}")
         except Exception as e:
             # Fallback sur modèle par défaut
-            fallback_path = "../../data/models/multibd_enhanced_v2.pt"
+            # Utiliser un chemin absolu basé sur la racine du projet
+            project_root = Path(__file__).parent.parent.parent.parent
+            fallback_path = project_root / "data" / "models" / "multibd_enhanced_v2.pt"
             print(f"⚠️  Modèle {weights} non trouvé, essai fallback: {fallback_path}")
             try:
-                self.model = YOLO(fallback_path)
-                weights = fallback_path
+                self.model = YOLO(str(fallback_path))
+                weights = str(fallback_path)
                 print(f"✅ Modèle fallback chargé : {fallback_path}")
             except Exception as e2:
-                print(f"❌ Échec chargement modèle : {e2}")
-                raise e2
+                print(f"❌ Échec chargement détecteur amélioré: {e2}")
+                # Fallback final sur YOLOv8n 
+                try:
+                    yolo_fallback = project_root / "yolov8n.pt"
+                    self.model = YOLO(str(yolo_fallback))
+                    print(f"✅ Modèle YOLOv8n de secours chargé : {yolo_fallback}")
+                except Exception as e3:
+                    print(f"❌ Échec complet chargement modèle : {e3}")
+                    raise e3
 
         self.conf, self.iou = conf, iou
         self.imgsz_infer = imgsz_infer
