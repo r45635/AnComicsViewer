@@ -1,0 +1,82 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          263.7931034482758,
+          252.89655172413768
+        ],
+        [
+          2753.448275862069,
+          1077.0344827586205
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          263.7931034482758,
+          1118.413793103448
+        ],
+        [
+          1450.0,
+          2163.2413793103447
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1484.4827586206898,
+          1121.8620689655172
+        ],
+        [
+          2753.448275862069,
+          2156.3448275862065
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          270.68965517241395,
+          2204.620689655172
+        ],
+        [
+          2756.8965517241377,
+          3725.310344827586
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/sisters_p045.png",
+  "imageData": null,
+  "imageHeight": 3992,
+  "imageWidth": 3000
+}

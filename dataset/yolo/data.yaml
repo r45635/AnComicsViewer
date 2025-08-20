@@ -13,7 +13,7 @@ names: ['panel', 'panel_inset']
 # Dataset info
 source: LabelMe annotations
 classes: {'panel': 0, 'panel_inset': 1}
-total_images: 67
-train_images: 53
-val_images: 14
-total_annotations: 514
+total_images: 76
+train_images: 60
+val_images: 16
+total_annotations: 555

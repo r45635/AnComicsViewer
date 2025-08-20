@@ -1,0 +1,100 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          239.65517241379303,
+          252.89655172413768
+        ],
+        [
+          2777.5862068965516,
+          1808.0689655172414
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          236.20689655172418,
+          1859.7931034482758
+        ],
+        [
+          1263.7931034482758,
+          3728.758620689655
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1301.7241379310344,
+          1859.7931034482758
+        ],
+        [
+          2784.48275862069,
+          2704.620689655172
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1305.1724137931037,
+          2746.0
+        ],
+        [
+          2060.3448275862074,
+          3718.413793103448
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          2094.8275862068967,
+          2749.448275862069
+        ],
+        [
+          2784.48275862069,
+          3718.413793103448
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/sisters_p025.png",
+  "imageData": null,
+  "imageHeight": 3992,
+  "imageWidth": 3000
+}
