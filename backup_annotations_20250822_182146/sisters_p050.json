@@ -1,0 +1,316 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          240.0,
+          253.33333333333331
+        ],
+        [
+          1731.1111111111113,
+          1251.111111111111
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1788.8888888888887,
+          246.66666666666666
+        ],
+        [
+          2742.222222222222,
+          1253.3333333333333
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          244.44444444444457,
+          1302.2222222222222
+        ],
+        [
+          2740.0,
+          1895.5555555555554
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          240.0,
+          1951.111111111111
+        ],
+        [
+          1575.5555555555557,
+          2797.777777777778
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1617.7777777777778,
+          1955.5555555555554
+        ],
+        [
+          2742.222222222222,
+          2788.8888888888887
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          244.44444444444457,
+          2851.111111111111
+        ],
+        [
+          2744.4444444444443,
+          3720.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          237.77777777777783,
+          253.33333333333331
+        ],
+        [
+          717.7777777777778,
+          655.5555555555555
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          760.0,
+          337.77777777777777
+        ],
+        [
+          1033.3333333333335,
+          644.4444444444445
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1808.8888888888887,
+          244.44444444444443
+        ],
+        [
+          2400.0,
+          626.6666666666666
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1966.6666666666665,
+          1304.4444444444443
+        ],
+        [
+          2622.222222222222,
+          1635.5555555555554
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          326.66666666666674,
+          1951.111111111111
+        ],
+        [
+          742.2222222222222,
+          2200.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          824.4444444444443,
+          1951.111111111111
+        ],
+        [
+          1573.3333333333335,
+          2377.777777777778
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1988.8888888888887,
+          1953.3333333333333
+        ],
+        [
+          2431.111111111111,
+          2251.111111111111
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          2431.111111111111,
+          1957.7777777777778
+        ],
+        [
+          2735.5555555555557,
+          2395.5555555555557
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          440.0,
+          2855.5555555555557
+        ],
+        [
+          1004.4444444444443,
+          3291.111111111111
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1004.4444444444443,
+          2860.0
+        ],
+        [
+          1433.3333333333335,
+          3255.5555555555557
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1662.2222222222222,
+          2902.222222222222
+        ],
+        [
+          2271.111111111111,
+          3300.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/sisters_p050.png",
+  "imageData": null,
+  "imageHeight": 3992,
+  "imageWidth": 3000
+}

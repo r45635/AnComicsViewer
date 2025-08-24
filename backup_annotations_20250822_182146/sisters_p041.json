@@ -1,0 +1,82 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          246.55172413793116,
+          259.7931034482756
+        ],
+        [
+          2770.689655172414,
+          2756.3448275862065
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          246.55172413793116,
+          2808.0689655172414
+        ],
+        [
+          1215.5172413793102,
+          3721.862068965517
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1263.7931034482758,
+          2811.5172413793102
+        ],
+        [
+          2763.7931034482763,
+          3711.5172413793102
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1860.3448275862074,
+          2811.5172413793102
+        ],
+        [
+          2556.8965517241377,
+          3049.448275862069
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/sisters_p041.png",
+  "imageData": null,
+  "imageHeight": 3992,
+  "imageWidth": 3000
+}

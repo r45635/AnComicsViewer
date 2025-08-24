@@ -1,20 +1,23 @@
-# Multi-BD Enhanced Dataset Configuration
-# Generated on /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer
+# Configuration Multi-BD Enhanced v2
+# Classes: panel (cases), balloon (bulles)
+# Mise à jour: 2025-08-22 18:21:46
 
-path: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/yolo
+path: ./dataset
 train: images/train
 val: images/val
 
 # Classes
+nc: 2
 names:
   0: panel
-  1: panel_inset
+  1: balloon
 
-# Dataset info
-nc: 2  # number of classes
-total_images: 97
-train_images: 68
-val_images: 29
-
-# Training hyperparameters (optimized for panel detection)
-# Use with: yolo train data=this_config.yaml model=yolov8n.pt epochs=100
+# Métadonnées
+version: 2.0
+description: "Dataset Multi-BD Enhanced avec classes panel/balloon"
+sources:
+  - "Golden City (82 images)"
+  - "Tintin (61 images)"
+  - "Pin-up (48 images)"
+  - "Sisters (67 images)"
+total_images: 258

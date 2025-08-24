@@ -1,0 +1,208 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          264.44444444444457,
+          255.55555555555554
+        ],
+        [
+          1257.7777777777778,
+          1955.5555555555554
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1306.6666666666665,
+          253.33333333333331
+        ],
+        [
+          2753.3333333333335,
+          1088.888888888889
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1302.2222222222222,
+          1146.6666666666667
+        ],
+        [
+          2753.3333333333335,
+          1960.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          266.66666666666674,
+          2017.7777777777778
+        ],
+        [
+          2748.8888888888887,
+          2700.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          266.66666666666674,
+          2751.111111111111
+        ],
+        [
+          1073.3333333333335,
+          3720.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1117.7777777777778,
+          2755.5555555555557
+        ],
+        [
+          1822.2222222222222,
+          3717.777777777778
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1862.2222222222222,
+          2755.5555555555557
+        ],
+        [
+          2751.111111111111,
+          3717.777777777778
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1322.2222222222222,
+          2017.7777777777778
+        ],
+        [
+          1691.1111111111113,
+          2362.222222222222
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          2397.777777777778,
+          3160.0
+        ],
+        [
+          2760.0,
+          3597.777777777778
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1397.7777777777778,
+          1142.2222222222222
+        ],
+        [
+          1817.7777777777778,
+          1488.888888888889
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          2204.4444444444443,
+          1142.2222222222222
+        ],
+        [
+          2517.777777777778,
+          1393.3333333333333
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/sisters_p063.png",
+  "imageData": null,
+  "imageHeight": 3992,
+  "imageWidth": 3000
+}

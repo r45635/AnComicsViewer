@@ -1,0 +1,28 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          4.285714285714221,
+          3.857142857142925
+        ],
+        [
+          2399.0000000000005,
+          3334.4042840276616
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/tintin_p0001.png",
+  "imageData": null,
+  "imageHeight": 3342,
+  "imageWidth": 2400
+}

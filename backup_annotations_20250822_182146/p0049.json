@@ -1,0 +1,28 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          2299.0,
+          3175.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/p0049.png",
+  "imageData": null,
+  "imageHeight": 3176,
+  "imageWidth": 2300
+}

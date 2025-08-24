@@ -1,0 +1,316 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          75.71428571428584,
+          255.7142857142857
+        ],
+        [
+          678.6666666666667,
+          994.6666666666666
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          705.7142857142859,
+          254.28571428571425
+        ],
+        [
+          1420.0,
+          990.6666666666666
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1442.8571428571427,
+          252.85714285714283
+        ],
+        [
+          1833.3333333333333,
+          988.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1854.2857142857142,
+          251.42857142857142
+        ],
+        [
+          2322.6666666666665,
+          986.6666666666666
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          78.57142857142867,
+          1054.2857142857142
+        ],
+        [
+          801.3333333333335,
+          1786.6666666666667
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          827.1428571428572,
+          1057.142857142857
+        ],
+        [
+          2317.333333333333,
+          1785.3333333333333
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          74.28571428571439,
+          1849.9999999999998
+        ],
+        [
+          865.3333333333335,
+          2578.6666666666665
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          885.7142857142857,
+          1848.5714285714284
+        ],
+        [
+          1471.4285714285716,
+          2574.285714285714
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1492.8571428571427,
+          1844.2857142857142
+        ],
+        [
+          2322.8571428571427,
+          2574.285714285714
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          78.57142857142867,
+          2638.4761904761904
+        ],
+        [
+          592.0,
+          3372.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          616.0,
+          2638.6666666666665
+        ],
+        [
+          1304.2857142857142,
+          3369.9999999999995
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1330.0,
+          2634.285714285714
+        ],
+        [
+          2322.8571428571427,
+          3369.9999999999995
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          844.0,
+          1074.6666666666667
+        ],
+        [
+          1312.0,
+          1258.6666666666667
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1796.0000000000002,
+          1994.6666666666667
+        ],
+        [
+          2254.6666666666665,
+          2196.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          632.0,
+          2658.6666666666665
+        ],
+        [
+          890.6666666666667,
+          2810.6666666666665
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1552.0,
+          2744.0
+        ],
+        [
+          1725.3333333333333,
+          2890.6666666666665
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1868.0000000000002,
+          2848.0
+        ],
+        [
+          1942.6666666666667,
+          2996.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/tintin_p0013.png",
+  "imageData": null,
+  "imageHeight": 3652,
+  "imageWidth": 2400
+}

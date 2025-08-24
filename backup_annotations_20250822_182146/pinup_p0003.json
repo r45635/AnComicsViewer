@@ -1,0 +1,46 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1699.0,
+          2199.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel_inset",
+      "points": [
+        [
+          417.5925925925926,
+          656.4814814814814
+        ],
+        [
+          1497.2222222222222,
+          987.9629629629628
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/pinup_p0003.png",
+  "imageData": null,
+  "imageHeight": 2200,
+  "imageWidth": 1700
+}

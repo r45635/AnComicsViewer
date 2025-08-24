@@ -1,0 +1,226 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          2887.931034482759,
+          2021.8620689655168
+        ],
+        [
+          229.31034482758605,
+          170.13793103448248
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          236.66666666666669,
+          2060.0
+        ],
+        [
+          2775.0000000000005,
+          2720.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          238.33333333333331,
+          2758.3333333333335
+        ],
+        [
+          1096.6666666666667,
+          3723.3333333333335
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1125.0,
+          2755.0
+        ],
+        [
+          1910.0000000000002,
+          3720.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          2773.3333333333335,
+          3720.0
+        ],
+        [
+          1948.3333333333333,
+          2758.3333333333335
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          2015.0000000000002,
+          701.6666666666667
+        ],
+        [
+          2588.3333333333335,
+          1176.6666666666667
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1166.6666666666667,
+          2061.666666666667
+        ],
+        [
+          1968.3333333333333,
+          2431.666666666667
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          2271.666666666667,
+          2058.3333333333335
+        ],
+        [
+          2621.666666666667,
+          2205.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          235.00000000000006,
+          2755.0
+        ],
+        [
+          626.6666666666667,
+          3156.666666666667
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1121.6666666666667,
+          2751.666666666667
+        ],
+        [
+          1505.0,
+          3161.666666666667
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          2100.0000000000005,
+          2758.3333333333335
+        ],
+        [
+          1493.3333333333333,
+          3171.666666666667
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          2140.0000000000005,
+          2755.0
+        ],
+        [
+          2771.666666666667,
+          3125.0
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/sisters_p017.png",
+  "imageData": null,
+  "imageHeight": 3992,
+  "imageWidth": 3000
+}

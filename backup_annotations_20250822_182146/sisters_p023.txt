@@ -1,0 +1,5 @@
+# Annotation YOLO pour sisters_p023.png
+# Format: class x_center y_center width height (coordonnées normalisées 0.0-1.0)
+# Classes: 0=panel, 1=panel_inset
+# Exemple: 0 0.5 0.3 0.4 0.6
+

@@ -1,0 +1,222 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          35.500000000000114,
+          54.875000000000114
+        ],
+        [
+          625.5000000000001,
+          807.3750000000001
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          656.7500000000001,
+          49.875000000000114
+        ],
+        [
+          1234.25,
+          804.8750000000001
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1261.8235294117649,
+          48.58823529411792
+        ],
+        [
+          2297.117647058824,
+          798.5882352941179
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          38.000000000000114,
+          851.1250000000001
+        ],
+        [
+          585.5000000000001,
+          1997.375
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          614.2500000000001,
+          846.1250000000001
+        ],
+        [
+          1608.0,
+          1993.625
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          38.000000000000114,
+          2036.125
+        ],
+        [
+          905.9411764705883,
+          2030.9411764705883
+        ],
+        [
+          756.7500000000001,
+          3192.375
+        ],
+        [
+          44.17647058823559,
+          3192.705882352941
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "polygon",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          935.3529411764707,
+          2033.8823529411766
+        ],
+        [
+          1270.6470588235293,
+          2028.0000000000002
+        ],
+        [
+          1271.75,
+          3192.375
+        ],
+        [
+          785.3529411764707,
+          3192.705882352941
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "polygon",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1639.25,
+          838.6250000000001
+        ],
+        [
+          2301.75,
+          831.1250000000001
+        ],
+        [
+          2304.25,
+          1986.125
+        ],
+        [
+          1646.75,
+          1991.125
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "polygon",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          1304.25,
+          2027.375
+        ],
+        [
+          2304.25,
+          2019.875
+        ],
+        [
+          2300.5,
+          3448.625
+        ],
+        [
+          1304.25,
+          3448.625
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "polygon",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          60.500000000000114,
+          2036.125
+        ],
+        [
+          420.5000000000001,
+          2259.875
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/p0047.png",
+  "imageData": null,
+  "imageHeight": 3506,
+  "imageWidth": 2356
+}
