@@ -56,7 +56,7 @@ try:
 except Exception:
     pass
 
-from PySide6.QtCore import Qt, QPoint, QPointF, QSize, QSizeF, QMimeData, QRectF, QTimer
+from PySide6.QtCore import Qt, QPoint, QPointF, QSize, QSizeF, QMimeData, QRectF, QTimer, QSettings
 
 # Import du cache amélioré
 try:
@@ -1762,6 +1762,37 @@ class ComicsView(QMainWindow):
         if self._current_path and os.path.exists(self._current_path):
             return os.path.dirname(self._current_path)
         return os.path.expanduser("~")
+    
+    def _save_last_file(self, path: str):
+        """Save the path of the last opened file to settings."""
+        try:
+            settings = QSettings("AnComicsViewer", "AnComicsViewer")
+            settings.setValue("lastFile", path)
+            pdebug(f"💾 Saved last file: {path}")
+        except Exception as e:
+            pdebug(f"⚠️ Failed to save last file setting: {e}")
+    
+    def _load_last_file(self) -> Optional[str]:
+        """Load the path of the last opened file from settings."""
+        try:
+            settings = QSettings("AnComicsViewer", "AnComicsViewer")
+            path = settings.value("lastFile", "")
+            if path and isinstance(path, str) and os.path.exists(path):
+                pdebug(f"📂 Found last file: {path}")
+                return path
+            elif path:
+                pdebug(f"⚠️ Last file no longer exists: {path}")
+        except Exception as e:
+            pdebug(f"⚠️ Failed to load last file setting: {e}")
+        return None
+    
+    def _try_reopen_last_file(self):
+        """Attempt to reopen the last file if it still exists."""
+        last_file = self._load_last_file()
+        if last_file:
+            pdebug(f"🔄 Attempting to reopen last file: {os.path.basename(last_file)}")
+            return self.load_pdf(last_file)
+        return False
 
     def load_pdf(self, path: str) -> bool:
         if not path or not os.path.exists(path) or not path.lower().endswith(".pdf"):
@@ -1802,6 +1833,9 @@ class ComicsView(QMainWindow):
         self._current_path = path
         self.view.setDocument(self.document)
         self.setWindowTitle(f"ComicsView — {os.path.basename(path)}")
+
+        # Save this file as the last opened file
+        self._save_last_file(path)
 
         self.fit_page()  # sensible default for comics
         self._panel_cache.clear()
@@ -2225,6 +2259,9 @@ def main():
             except ValueError:
                 pass
         window.open_on_start(pdf_path, page)
+    else:
+        # No explicit PDF specified, try to reopen the last file
+        window._try_reopen_last_file()
     
     return app.exec()
 

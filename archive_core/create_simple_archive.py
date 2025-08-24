@@ -64,6 +64,9 @@ def create_simple_archive():
         "src/ancomicsviewer/detectors/postproc.py",
         "src/ancomicsviewer/detectors/reading_order.py",
         "src/ancomicsviewer/detectors/yolo_seg.py",
+        "src/ancomicsviewer/detectors/models/multibd_enhanced_v2.pt",
+        "data/models/multibd_enhanced_v2.pt",
+        "detectors/models/multibd_enhanced_v2.pt",
         "scripts/ml/models/__init__.py",
         "scripts/ml/models/yolo_detector.py",
         "scripts/ml/benchmark.py",
@@ -71,6 +74,8 @@ def create_simple_archive():
         "scripts/tools/train_multibd_model.py",
         "scripts/tools/labelme_to_yolo.py",
         "scripts/tools/ultra_multibd_detector.py",
+        "test_cli.py",
+        "simple_web_viewer.py",
     ]
     
     total_size = 0

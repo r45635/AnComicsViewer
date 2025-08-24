@@ -143,10 +143,10 @@ def snap_panels_to_gutters(rgb: np.ndarray, rect: QRectF, pad: int = 6, max_shif
         return rect  # fallback
     return QRectF(float(x1), float(y1), float(x2-x1), float(y2-y1))
 
-def split_by_internal_gutters(rgb: np.ndarray, rect: QRectF, min_band_ratio=0.012, min_gap_px=6):
+def split_by_internal_gutters(rgb: np.ndarray, rect: QRectF) -> list[QRectF]:
     """
-    If a large rect likely contains multiple panels, split along vertical and/or horizontal
-    bright bands. Returns a list of QRectF (original coords).
+    If a large rect likely contains multiple panels, split along vertical bright bands.
+    More conservative approach with harder conditions.
     """
     h, w = rgb.shape[:2]
     x1, y1 = int(rect.left()), int(rect.top())
@@ -156,33 +156,43 @@ def split_by_internal_gutters(rgb: np.ndarray, rect: QRectF, min_band_ratio=0.01
     if x1 >= x2 or y1 >= y2 or x1 < 0 or y1 < 0 or x2 > w or y2 > h:
         return [rect]
         
-    roi = cv2.cvtColor(rgb[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)
-    roi_f = roi.astype(np.float32)/255.0
+    roi = rgb[y1:y2, x1:x2]
+    L = lab_L(roi)  # Use LAB L channel with CLAHE
+    H, W = L.shape[:2]
+    
+    # Bandes/gouttières doivent être franchement larges
+    min_band_ratio = 0.04
+    min_gap_px = max(20, int(0.02 * W))
 
-    # vertical projection (search vertical gutters)
-    vproj = roi_f.mean(axis=0)
-    thresh = vproj.mean() + 0.25*vproj.std()        # bright bands
-    candidates = np.where(vproj > thresh)[0]
+    vproj = L.mean(axis=0)
+    # Exiger des bandes très claires (évite neige/ciel)
+    thr = max(215, vproj.mean() + 0.60 * vproj.std())
+    mask = vproj > thr
+    spans = find_runs(mask, int(min_band_ratio * W))
 
-    # group contiguous indices into bands
-    bands, cur = [], []
-    for i in candidates:
-        if cur and i != cur[-1] + 1:
-            bands.append(cur); cur = []
-        cur.append(i)
-    if cur: bands.append(cur)
+    # Filtrer par faible densité d'arêtes (vraies gouttières = peu d'arêtes)
+    edges = cv2.Canny(L, 60, 180)
+    def edge_density(x1_span, x2_span):
+        sl = edges[:, max(0, x1_span):min(W, x2_span)]
+        return float((sl > 0).mean())
+    
+    spans = [(x1_span, x2_span) for (x1_span, x2_span) in spans if edge_density(x1_span, x2_span) < 0.05]
 
-    splits = [x1]
-    for b in bands:
-        if len(b) >= max(min_gap_px, int(min_band_ratio * (x2-x1))):
-            # cut in the middle of the bright band
-            splits.append(x1 + int((b[0] + b[-1]) / 2))
-    splits.append(x2)
+    if not spans:
+        return [rect]
+
+    # Créer les découpes
+    splits = [0]
+    for x1_span, x2_span in spans:
+        # Couper au milieu de la bande claire
+        splits.append((x1_span + x2_span) // 2)
+    splits.append(W)
     splits = sorted(set(splits))
+    
     pieces = []
     for a, b in zip(splits, splits[1:]):
-        if b - a > 0.12 * (x2-x1):  # ignore tiny slivers
-            pieces.append(QRectF(float(a), float(y1), float(b-a), float(y2-y1)))
+        if b - a > 0.15 * W:  # Ignorer les tranches trop fines
+            pieces.append(QRectF(float(x1 + a), float(y1), float(b - a), float(y2 - y1)))
 
     return pieces if len(pieces) > 1 else [rect]
 

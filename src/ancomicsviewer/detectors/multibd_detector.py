@@ -60,6 +60,7 @@ class MultiBDPanelDetector(BasePanelDetector):
     ):
         # Configuration PyTorch 2.8 pour weights_only
         import torch
+        import os
         try:
             import torch.serialization
             import ultralytics.nn.tasks
@@ -74,6 +75,18 @@ class MultiBDPanelDetector(BasePanelDetector):
             ])
         except Exception:
             pass
+        
+        # Seuils plus stricts (peuvent être overridés par env)
+        self.conf = float(os.getenv("ACV_CONF", 0.35))   # fallback
+        # Seuils par classe (overrides via env)
+        self.class_conf = {
+            "panel": float(os.getenv("ACV_CONF_PANEL", 0.40)),
+            "panel_inset": float(os.getenv("ACV_CONF_INSET", 0.50)),
+            "balloon": float(os.getenv("ACV_CONF_BALLOON", 0.55)),
+        }
+        self.iou = float(os.getenv("ACV_IOU", 0.55))
+        self.min_area_frac = float(os.getenv("ACV_MIN_AREA_FRAC", 0.015))
+        self.enable_internal_split = os.getenv("ACV_SPLIT_INTERNAL", "0") == "1"
         
         try:
             self.model = YOLO(weights)
@@ -99,7 +112,14 @@ class MultiBDPanelDetector(BasePanelDetector):
                     print(f"❌ Échec complet chargement modèle : {e3}")
                     raise e3
 
-        self.conf, self.iou = conf, iou
+        # Use environment parameters if available, otherwise use passed parameters
+        if os.getenv("ACV_CONF") is None:
+            self.conf = conf
+        if os.getenv("ACV_IOU") is None:
+            self.iou = iou
+        if os.getenv("ACV_MIN_AREA_FRAC") is None:
+            self.min_area_frac = min_area_frac
+            
         self.imgsz_infer = imgsz_infer
         self.reading_rtl = rtl
 
@@ -109,7 +129,6 @@ class MultiBDPanelDetector(BasePanelDetector):
         self.title_max_h_frac = title_max_h_frac
         self.title_min_w_frac = title_min_w_frac
         self.title_ar_min = title_ar_min
-        self.min_area_frac = min_area_frac
         self.max_ar, self.min_ar = max_ar, min_ar
         self.weights_path = weights
 
@@ -155,11 +174,11 @@ class MultiBDPanelDetector(BasePanelDetector):
             results = self.model.predict(
                 source=rgb,
                 imgsz=1280,           # match training
-                conf=self.conf,       # default 0.15
-                iou=self.iou,         # default 0.60
-                max_det=200,
+                conf=0.25,            # lower initial threshold, class-specific filtering applied later
+                iou=self.iou,         # default 0.55 (plus strict)
+                max_det=100,          # reduced from 200 to avoid too many detections
                 device=_device(),
-                agnostic_nms=False,
+                agnostic_nms=False,   # keep as False as specified
                 verbose=False
             )[0]
         except Exception as e:
@@ -171,25 +190,57 @@ class MultiBDPanelDetector(BasePanelDetector):
             # Gestion compatible PyTorch tensors/numpy
             boxes = results.boxes.xyxy
             classes = results.boxes.cls
+            confs = results.boxes.conf
             
             # Conversion vers numpy si nécessaire
             if hasattr(boxes, 'cpu'):
                 boxes = boxes.cpu().numpy()
             if hasattr(classes, 'cpu'):  
                 classes = classes.cpu().numpy()
+            if hasattr(confs, 'cpu'):
+                confs = confs.cpu().numpy()
             
             boxes = np.array(boxes)
             classes = np.array(classes).astype(int)
+            confs = np.array(confs)
+            
+            # Map class indices to names
+            class_names = {0: "panel", 1: "panel_inset", 2: "balloon"}
                 
-            for (x1, y1, x2, y2), cls in zip(boxes, classes):
+            for (x1, y1, x2, y2), cls, conf in zip(boxes, classes, confs):
+                # Apply class-specific confidence thresholds
+                class_name = class_names.get(cls, "panel")
+                required_conf = self.class_conf.get(class_name, self.conf)
+                
+                if conf < required_conf:
+                    continue
+                    
+                # Geometric sanity checks
                 w = max(0.0, x2 - x1); h = max(0.0, y2 - y1)
                 if w <= 1 or h <= 1:
+                    continue
+                
+                # Aspect ratio filter (prevent extreme shapes)
+                aspect_ratio = w / max(1e-6, h)
+                max_aspect = float(os.getenv("ACV_MAX_ASPECT", 5.0))  # configurable
+                if aspect_ratio > max_aspect or aspect_ratio < (1.0/max_aspect):
+                    continue
+                
+                # Minimum size in pixels (prevent tiny detections)
+                min_pixel_size = float(os.getenv("ACV_MIN_PIXEL_SIZE", 20.0))
+                if w < min_pixel_size or h < min_pixel_size:
                     continue
                 # Create initial rect in pixel coordinates for post-processing
                 panel_rect_px = QRectF(x1, y1, w, h)
                 
-                # Apply internal gutter splitting first
-                split_rects = split_by_internal_gutters(rgb, panel_rect_px)
+                # Ne découpe que si explicitement activé et si le panel est très allongé
+                if self.enable_internal_split and (
+                    panel_rect_px.width()/max(1.0, panel_rect_px.height()) > 1.8 or 
+                    panel_rect_px.height()/max(1.0, panel_rect_px.width()) > 1.8
+                ):
+                    split_rects = split_by_internal_gutters(rgb, panel_rect_px)
+                else:
+                    split_rects = [panel_rect_px]
                 
                 for sub_rect in split_rects:
                     # Snap to gutters on pixel level
@@ -235,6 +286,12 @@ class MultiBDPanelDetector(BasePanelDetector):
 
         # ordre de lecture robuste (rangées)
         ordered = self._sort_reading_order(kept, page_point_size)
+        
+        # Debug: class-specific filtering info
+        if os.getenv("ACV_DEBUG", "0") == "1":
+            total_detections = len(boxes) if 'boxes' in locals() else 0
+            print(f"🎯 Detection summary: {total_detections} raw → {len(ordered)} final")
+            print(f"   Class thresholds: panel={self.class_conf['panel']:.2f}, inset={self.class_conf['panel_inset']:.2f}, balloon={self.class_conf['balloon']:.2f}")
         
         # Debug: dump failures for active learning
         page_w, page_h = float(page_point_size.width()), float(page_point_size.height())
