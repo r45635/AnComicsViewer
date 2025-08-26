@@ -23,10 +23,10 @@ def get_version():
         )
         if result.returncode == 0:
             version = result.stdout.strip().replace("v", "").replace("-", "_").replace("+", "_")
-            return version
+            return f"{version}_YOLO28H_Simplified"
     except Exception:
         pass
-    return f"2.0.0_dev_{datetime.now().strftime('%Y%m%d')}"
+    return f"2.0.0_YOLO28H_Simplified_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
 def create_simple_archive():
     """Crée l'archive avec une liste de fichiers prédéfinie."""
@@ -37,20 +37,21 @@ def create_simple_archive():
     archive_name = f"AnComicsViewer_Core_App_v{version}.zip"
     archive_path = script_dir / archive_name
     
-    print(f"🎯 Création de l'archive AnComicsViewer Core Application")
+    print(f"🎯 Création de l'archive AnComicsViewer YOLO 28h Simplifié")
     print(f"📦 Version: {version}")
     print(f"📁 Source: {base_dir}")
     print(f"🗜️ Archive: {archive_name}")
+    print(f"🔥 Détecteur: YOLO 28h Ultra-Simplifié UNIQUEMENT")
     print("-" * 60)
     
-    # Liste prédéfinie des fichiers essentiels
+    # Liste prédéfinie des fichiers essentiels pour YOLO 28h Simplifié
     essential_files = [
         "main.py",
         "setup.py", 
         "pyproject.toml",
         "requirements.txt",
         "requirements-ml.txt",
-        "ARCHIVE_README.md",
+        "YOLO28H_SIMPLIFIED_README.md",
         "assets/icon.ico",
         "assets/icon.png",
         "src/ancomicsviewer/__init__.py",
@@ -60,20 +61,8 @@ def create_simple_archive():
         "src/ancomicsviewer/utils/enhanced_cache.py",
         "src/ancomicsviewer/detectors/__init__.py",
         "src/ancomicsviewer/detectors/base.py",
-        "src/ancomicsviewer/detectors/multibd_detector.py",
-        "src/ancomicsviewer/detectors/postproc.py",
-        "src/ancomicsviewer/detectors/reading_order.py",
-        "src/ancomicsviewer/detectors/yolo_seg.py",
-        "src/ancomicsviewer/detectors/models/multibd_enhanced_v2.pt",
-        "data/models/multibd_enhanced_v2.pt",
-        "detectors/models/multibd_enhanced_v2.pt",
-        "scripts/ml/models/__init__.py",
-        "scripts/ml/models/yolo_detector.py",
-        "scripts/ml/benchmark.py",
-        "scripts/ml/dataset.yaml",
-        "scripts/tools/train_multibd_model.py",
-        "scripts/tools/labelme_to_yolo.py",
-        "scripts/tools/ultra_multibd_detector.py",
+        "src/ancomicsviewer/detectors/yolo_28h_detector.py",
+        "runs/multibd_enhanced_v2/yolov8s-mps-1280/weights/best.pt",
         "test_cli.py",
         "simple_web_viewer.py",
     ]

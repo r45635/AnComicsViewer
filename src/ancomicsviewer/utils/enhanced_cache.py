@@ -62,23 +62,49 @@ class PanelCacheManager:
             return hashlib.md5(pdf_path.encode()).hexdigest()[:16]
     
     def _get_detector_hash(self, detector) -> str:
-        """Calcule un hash des paramètres du détecteur."""
+        """Génère un hash basé sur les paramètres du détecteur."""
         try:
-            # Extraire les paramètres clés du détecteur
-            if hasattr(detector, '__dict__'):
-                params = {}
-                for key, value in detector.__dict__.items():
-                    if not key.startswith('_') and not callable(value):
-                        try:
-                            params[key] = str(value)
-                        except:
-                            continue
+            # VERSION DE CACHE - v5 avec panels-by-name
+            CACHE_VERSION = "v5-panels-by-name"
+            
+            # Récupère les paramètres principaux du détecteur
+            params = {
+                "cache_version": CACHE_VERSION,  # ← Force la régénération du cache
+                "device": getattr(detector, 'device', 'cpu'),
+                "model_name": getattr(detector, 'model_name', 'unknown')
+            }
+            
+            # Ajoute la config BD si disponible
+            if hasattr(detector, 'config'):
+                config = detector.config
+                params.update({
+                    "conf_base": getattr(config, 'CONF_BASE', 0.15),
+                    "conf_min": getattr(config, 'CONF_MIN', 0.05),
+                    "iou_nms": getattr(config, 'IOU_NMS', 0.5),
+                    "target_min": getattr(config, 'TARGET_MIN', 2),
+                    "target_max": getattr(config, 'TARGET_MAX', 20),
+                })
+            
+            # Ajoute la signature des noms de classes du modèle si disponible
+            if hasattr(detector, 'get_model_names_signature'):
+                try:
+                    params["model_names_sig"] = detector.get_model_names_signature()
+                except:
+                    pass
                 
-                param_str = json.dumps(params, sort_keys=True)
-                return hashlib.md5(param_str.encode()).hexdigest()[:12]
+            # Ajoute tous les autres paramètres publics (fallback)
+            for key, value in detector.__dict__.items():
+                if not key.startswith('_') and not callable(value):
+                    try:
+                        params[key] = str(value)
+                    except:
+                        continue
+            
+            param_str = json.dumps(params, sort_keys=True)
+            return hashlib.md5(param_str.encode()).hexdigest()[:12]
         except:
             pass
-        return "default"
+        return "default_v4"
     
     def _get_cache_key(self, pdf_path: str, detector) -> Tuple[str, str]:
         """Génère les clés de cache pour un fichier et détecteur."""
@@ -142,8 +168,14 @@ class PanelCacheManager:
     def save_panels(self, pdf_path: str, page: int, panels: List[QRectF], detector):
         """
         Sauvegarde les panels dans le cache (mémoire + disque).
+        ⚠️ NE SAUVEGARDE PAS les résultats vides pour laisser une 2e chance.
         """
         with self._lock:
+            # Ne pas sauvegarder les résultats vides dans le cache
+            if not panels or len(panels) == 0:
+                print(f"[Cache] Skipping empty result for page {page} (no cache write)")
+                return
+            
             cache_key = self._get_cache_key(pdf_path, detector)[0]
             
             # 1. Cache mémoire

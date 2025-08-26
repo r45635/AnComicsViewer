@@ -83,6 +83,8 @@ Exemples d'utilisation:
   python main.py --preset fb mycomics.pdf           # Ouvrir avec preset Franco-Belge
   python main.py --detector multibd --page 5        # Commencer à la page 5 avec Multi-BD
   python main.py --dpi 300 --preset manga file.pdf # Manga haute résolution
+  python main.py --ar-mode mycomics.pdf             # Mode AR avec overlays parfaits
+  python main.py --ar-test                          # Test du système AR
 
 Variables d'environnement supportées:
   ANCOMICS_PRESET   : fb|manga|newspaper
@@ -90,6 +92,8 @@ Variables d'environnement supportées:
   ANCOMICS_DPI      : résolution de détection (100-400)
   ANCOMICS_PDF      : chemin du fichier PDF à ouvrir
   ANCOMICS_PAGE     : page de démarrage (0-based)
+  ANCOMICS_AR_MODE  : 1 pour activer le mode AR
+  ANCOMICS_AR_TEST  : 1 pour lancer les tests AR
         """
     )
     
@@ -106,6 +110,12 @@ Variables d'environnement supportées:
     parser.add_argument("--page", type=int, metavar="N", default=0,
                        help="Page de démarrage (0-based, défaut: 0)")
     
+    # Nouvelles options AR (Architecture Requirements)
+    parser.add_argument("--ar-mode", action="store_true",
+                       help="Active le mode AR avec overlays parfaitement alignés (EXPÉRIMENTAL)")
+    parser.add_argument("--ar-test", action="store_true",
+                       help="Lance le viewer de test AR avec interface simplifiée")
+    
     return parser.parse_args()
 
 def setup_environment(args):
@@ -120,6 +130,12 @@ def setup_environment(args):
         os.environ["ANCOMICS_PDF"] = args.pdf_file
     if args.page > 0:
         os.environ["ANCOMICS_PAGE"] = str(args.page)
+    
+    # Configuration AR
+    if args.ar_mode:
+        os.environ["ANCOMICS_AR_MODE"] = "1"
+    if args.ar_test:
+        os.environ["ANCOMICS_AR_TEST"] = "1"
 
 
 def main():
@@ -167,12 +183,33 @@ def main():
         # Importer et lancer AnComicsViewer
         from src.ancomicsviewer import main as app_main
         
+        # Si mode test AR, lancer le viewer de test
+        if hasattr(args, 'ar_test') and args.ar_test:
+            print("🧪 Mode test AR - Lancement du viewer de test...")
+            if args.pdf_file:
+                # Lancer le test intégré avec PDF
+                import subprocess
+                result = subprocess.run([
+                    sys.executable, "test_ar_pdf_integration.py", args.pdf_file
+                ], cwd=SCRIPT_DIR)
+                return result.returncode
+            else:
+                # Lancer le test de base
+                import subprocess
+                result = subprocess.run([
+                    sys.executable, "test_ar_viewer.py"
+                ], cwd=SCRIPT_DIR)
+                return result.returncode
+        
         print("✅ Interface utilisateur initialisée")
         print("📖 Prêt à ouvrir des fichiers PDF!")
         if args.pdf_file:
             print(f"📂 Ouverture de: {args.pdf_file}")
         else:
             print("💡 Utilisez Ctrl+O pour ouvrir un fichier ou glissez-déposez")
+        
+        if hasattr(args, 'ar_mode') and args.ar_mode:
+            print("🔬 Mode AR activé - Overlays parfaitement alignés!")
         
         return app_main()
         

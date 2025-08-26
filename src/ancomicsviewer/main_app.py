@@ -39,6 +39,15 @@ try:
 except ImportError:
     cv2 = None
 
+# Import AR integration if available
+try:
+    from .ar_integration import ARIntegrationMixin
+    AR_AVAILABLE = True
+except ImportError:
+    class ARIntegrationMixin:
+        pass
+    AR_AVAILABLE = False
+
 def pdebug(*parts):
     """Safe console logger for Panels; never crashes on multi-lines."""
     try:
@@ -682,7 +691,8 @@ class PannablePdfView(QPdfView):
         self.setPageMode(QPdfView.PageMode.MultiPage)
         # Overlay
         self._overlay_enabled = False
-        self._overlay_rects: List[QRectF] = []  # in page points for CURRENT page only
+        self._overlay_rects: List[QRectF] = []  # panels in page points for CURRENT page only
+        self._overlay_balloons: List[QRectF] = []  # balloons in page points for CURRENT page only
 
     # --- Pan with left click when scrollbars are available ---
     def mousePressEvent(self, event):
@@ -746,8 +756,9 @@ class PannablePdfView(QPdfView):
             main.export_current_page()
 
     # --- Panel overlay API ---
-    def set_panel_overlay(self, rects: List[QRectF], enabled: bool):
-        self._overlay_rects = rects or []
+    def set_panel_overlay(self, panels: List[QRectF], balloons: List[QRectF], enabled: bool):
+        self._overlay_rects = panels or []
+        self._overlay_balloons = balloons or []
         self._overlay_enabled = bool(enabled)
         self.viewport().update()
 
@@ -763,23 +774,60 @@ class PannablePdfView(QPdfView):
         vh = self.viewport().height()
         content_w = page_pts.width() * z
         content_h = page_pts.height() * z
-        pad_x = max(0.0, (vw - content_w) / 2.0)
-        pad_y = max(0.0, (vh - content_h) / 2.0)
+        
+        # 🎯 APPROCHE CORRIGÉE : Utiliser le padding comme QPdfView le fait réellement
+        # Mais seulement quand la page est plus petite que le viewport
+        pad_x = max(0.0, (vw - content_w) / 2.0) if content_w < vw else 0.0
+        pad_y = max(0.0, (vh - content_h) / 2.0) if content_h < vh else 0.0
+        
         sx = self.horizontalScrollBar().value()
         sy = self.verticalScrollBar().value()
+        
+        # 🔧 CALCUL HYBRIDE : padding + zoom - scroll
         x = pad_x + (x_pt * z) - sx
         y = pad_y + (y_pt * z) - sy
+        
+        # 🔍 DEBUG TRANSFORMATION CIBLE pour BALLOONS uniquement page 3
+        cur = self.pageNavigator().currentPage()
+        if cur == 2:  # Page 3 (index 2)
+            # Diagnostic uniquement pour les balloons
+            if (abs(x_pt - 268.1) < 0.1 and abs(y_pt - 0.3) < 0.1) or \
+               (abs(x_pt - 287.0) < 0.1 and abs(y_pt - 69.7) < 0.1):
+                object_type = "BALLOON B1" if abs(x_pt - 268.1) < 0.1 else "BALLOON B2"
+                print(f"🎯 {object_type} TRANSFORM DIRECT:")
+                print(f"   PDF({x_pt:.1f},{y_pt:.1f}) → Z{z:.3f} → Pad({pad_x:.1f},{pad_y:.1f}) → Scr({sx},{sy}) → VIEW({x:.1f},{y:.1f})")
+                
+                # 🔧 VÉRIFICATION: recalculer avec le zoom EXACT du paintEvent
+                import time
+                current_time = time.time()
+                if not hasattr(self, '_last_paint_zoom_check') or (current_time - self._last_paint_zoom_check) > 0.1:
+                    self._last_paint_zoom_check = current_time
+                    paint_zoom = self.zoomFactor()
+                    if abs(paint_zoom - z) > 0.001:
+                        corrected_x = pad_x + (x_pt * paint_zoom) - sx
+                        corrected_y = pad_y + (y_pt * paint_zoom) - sy
+                        print(f"   🚨 CORRECTION ZOOM: Paint={paint_zoom:.3f} vs Calc={z:.3f}")
+                        print(f"   🎯 COORDONNÉES CORRIGÉES: ({corrected_x:.1f},{corrected_y:.1f})")
+        
         return (x, y)
 
     def _page_rect_to_view(self, r: QRectF) -> QRectF:
+        """Convertir un rectangle PDF vers VIEW en utilisant le zoom EXACT du moment"""
+        # 🎯 UTILISER LE ZOOM EXACT du moment de l'affichage
+        current_zoom = self.zoomFactor()
+        
+        # Utiliser la fonction originale pour les coordonnées avec le zoom exact
         x, y = self._page_to_view_xy(r.left(), r.top())
-        w = r.width() * self.zoomFactor()
-        h = r.height() * self.zoomFactor()
+        
+        # 🔧 Calculer les dimensions avec le zoom EXACT du moment
+        w = r.width() * current_zoom
+        h = r.height() * current_zoom
+        
         return QRectF(x, y, w, h)
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if not self._overlay_enabled or not self._overlay_rects:
+        if not self._overlay_enabled or (not self._overlay_rects and not self._overlay_balloons):
             return
         try:
             painter = QPainter(self.viewport())
@@ -792,6 +840,18 @@ class PannablePdfView(QPdfView):
             if page_pts.width() <= 0 or page_pts.height() <= 0:
                 return
 
+            # 🔄 VÉRIFIER changement de zoom pour invalider cache VIEW
+            current_zoom = self.zoomFactor()
+            main = self.window()
+            if (hasattr(main, '_last_cached_zoom') and 
+                abs(current_zoom - main._last_cached_zoom) > 0.001):
+                print(f"🔄 ZOOM CHANGÉ EN PAINT: {main._last_cached_zoom:.3f} → {current_zoom:.3f}")
+                print("🗑️ Invalidation cache VIEW (zoom en temps réel)")
+                if hasattr(main, '_panel_view_cache'):
+                    main._panel_view_cache.clear()
+                if hasattr(main, '_balloon_view_cache'):
+                    main._balloon_view_cache.clear()
+
             # --- Cadre de page (debug) ---
             page_rect_view = self._page_rect_to_view(QRectF(0, 0, page_pts.width(), page_pts.height()))
             p2 = QPen(QColor(0, 120, 255, 200), 2)  # bleu pour le cadre de page
@@ -802,15 +862,145 @@ class PannablePdfView(QPdfView):
             pen = QPen(QColor(0, 200, 0, 220), 2)
             fill = QColor(0, 200, 0, 55)
             painter.setPen(pen); painter.setBrush(fill)
-            for idx, r in enumerate(self._overlay_rects):
-                if r.isEmpty(): 
-                    continue
-                vr = self._page_rect_to_view(r)
-                painter.drawRect(vr)
-                # index en surimpression
-                painter.setPen(QPen(QColor(0,0,0,255), 1))
-                painter.drawText(vr.adjusted(3, 3, -3, -3), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"#{idx+1}")
-                painter.setPen(pen)
+            
+            # 🔍 LOGS DÉTAILLÉS SPÉCIFIQUES PAGE 3
+            is_page_3 = (cur == 2)  # page 3 = index 2
+            if is_page_3:
+                print(f"\n🎯 === DIAGNOSTIC PAGE 3 === PAINT EVENT ===")
+                print(f"   📄 Page courante: {cur} (Page 3)")
+                print(f"   📏 Page size: {page_pts.width():.1f}x{page_pts.height():.1f} pts")
+                print(f"   🔍 Zoom actuel: {current_zoom:.3f}")
+                print(f"   📐 Viewport size: {self.viewport().size().width()}x{self.viewport().size().height()}")
+                
+                # Informations de positionnement du viewport
+                scroll_x = self.horizontalScrollBar().value()
+                scroll_y = self.verticalScrollBar().value()
+                print(f"   📜 Scroll position: ({scroll_x}, {scroll_y})")
+                
+                # État du cache zoom
+                if hasattr(main, '_last_cached_zoom'):
+                    print(f"   🔄 Cache zoom: {main._last_cached_zoom:.3f} vs actuel: {current_zoom:.3f}")
+                    print(f"   🔄 Différence zoom: {abs(current_zoom - main._last_cached_zoom):.6f}")
+            else:
+                print(f"🎨 PAINT EVENT - Page {cur}")
+                print(f"   📏 Page size: {page_pts.width():.1f}x{page_pts.height():.1f} pts")
+                print(f"   🔍 Zoom: {current_zoom:.3f}")
+            
+            # 🎯 UTILISER les coordonnées VIEW pré-calculées si disponibles
+            cur_page = self.pageNavigator().currentPage()
+            
+            # Vérifier si on a des coordonnées VIEW en cache
+            # 🎯 DÉSACTIVER TEMPORAIREMENT le cache VIEW pour diagnostiquer le problème
+            # if (hasattr(main, '_panel_view_cache') and cur_page in main._panel_view_cache and 
+            #     hasattr(main, '_balloon_view_cache') and cur_page in main._balloon_view_cache):
+            if False:  # 🔧 FORCER le recalcul en temps réel
+                # UTILISER les coordonnées VIEW pré-calculées (plus précises)
+                view_panels = main._panel_view_cache[cur_page]
+                view_balloons = main._balloon_view_cache[cur_page]
+                
+                print(f"   🟢 Panels à dessiner: {len(view_panels)} (coordonnées VIEW pré-calculées)")
+                for idx, vr in enumerate(view_panels):
+                    if vr.isEmpty(): 
+                        continue
+                    print(f"      P{idx+1}: VIEW({vr.x():.1f},{vr.y():.1f},{vr.width():.1f}x{vr.height():.1f}) [PRE-CALC]")
+                    painter.drawRect(vr)
+                    # index en surimpression
+                    painter.setPen(QPen(QColor(0,0,0,255), 1))
+                    painter.drawText(vr.adjusted(3, 3, -3, -3), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"P{idx+1}")
+                    painter.setPen(pen)
+                
+                # --- Balloons (ROUGE) ---
+                pen_balloon = QPen(QColor(200, 0, 0, 220), 2)
+                fill_balloon = QColor(200, 0, 0, 55)
+                painter.setPen(pen_balloon); painter.setBrush(fill_balloon)
+                print(f"   🔴 Balloons à dessiner: {len(view_balloons)} (coordonnées VIEW pré-calculées)")
+                for idx, vr in enumerate(view_balloons):
+                    if vr.isEmpty(): 
+                        continue
+                    print(f"      B{idx+1}: VIEW({vr.x():.1f},{vr.y():.1f},{vr.width():.1f}x{vr.height():.1f}) [PRE-CALC]")
+                    painter.drawRect(vr)
+                    # index en surimpression
+                    painter.setPen(QPen(QColor(255,255,255,255), 1))
+                    painter.drawText(vr.adjusted(3, 3, -3, -3), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"B{idx+1}")
+                    painter.setPen(pen_balloon)
+            else:
+                # FALLBACK: utiliser les vraies coordonnées PDF depuis le cache du main
+                main = self.window()
+                cur_page = self.pageNavigator().currentPage()
+                
+                # Récupérer les vraies coordonnées PDF depuis le cache principal
+                if (hasattr(main, '_panel_cache') and cur_page in main._panel_cache):
+                    pdf_panels = main._panel_cache[cur_page]
+                    print(f"   🟢 Panels à dessiner: {len(pdf_panels)} (conversion PDF→VIEW temps réel)")
+                    for idx, r in enumerate(pdf_panels):
+                        if r.isEmpty(): 
+                            continue
+                        vr = self._page_rect_to_view(r)
+                        print(f"      P{idx+1}: PDF({r.x():.1f},{r.y():.1f},{r.width():.1f}x{r.height():.1f}) → View({vr.x():.1f},{vr.y():.1f},{vr.width():.1f}x{vr.height():.1f}) [REALTIME]")
+                        painter.drawRect(vr)
+                        # index en surimpression
+                        painter.setPen(QPen(QColor(0,0,0,255), 1))
+                        painter.drawText(vr.adjusted(3, 3, -3, -3), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"P{idx+1}")
+                        painter.setPen(pen)
+                else:
+                    print("   🟢 Panels à dessiner: 0 (pas de cache PDF disponible)")
+                
+                # --- Balloons (ROUGE) ---
+                pen_balloon = QPen(QColor(200, 0, 0, 220), 2)
+                fill_balloon = QColor(200, 0, 0, 55)
+                painter.setPen(pen_balloon); painter.setBrush(fill_balloon)
+                
+                if (hasattr(main, '_balloon_cache') and cur_page in main._balloon_cache):
+                    pdf_balloons = main._balloon_cache[cur_page]
+                    
+                    # 🔍 LOGS DÉTAILLÉS SPÉCIFIQUES PAGE 3 pour BALLOONS
+                    if is_page_3:
+                        print(f"\n🔴 === BALLOONS PAGE 3 - DIAGNOSTIC CONVERSION ===")
+                        print(f"   📊 Nombre de balloons trouvés: {len(pdf_balloons)}")
+                        print(f"   🔍 Zoom exact au moment du paint: {current_zoom:.6f}")
+                        
+                        # État du viewport au moment du calcul
+                        vw = self.viewport().width()
+                        vh = self.viewport().height()
+                        sx = self.horizontalScrollBar().value()
+                        sy = self.verticalScrollBar().value()
+                        print(f"   📐 Viewport: {vw}x{vh}, Scroll: ({sx},{sy})")
+                        
+                        # Test de la page pour le padding
+                        content_w = page_pts.width() * current_zoom
+                        content_h = page_pts.height() * current_zoom
+                        pad_x = max(0.0, (vw - content_w) / 2.0) if content_w < vw else 0.0
+                        pad_y = max(0.0, (vh - content_h) / 2.0) if content_h < vh else 0.0
+                        print(f"   � Content: {content_w:.1f}x{content_h:.1f}, Padding: ({pad_x:.1f},{pad_y:.1f})")
+                    else:
+                        print(f"   �🔴 Balloons à dessiner: {len(pdf_balloons)} (conversion PDF→VIEW temps réel)")
+                        
+                    for idx, r in enumerate(pdf_balloons):
+                        if r.isEmpty(): 
+                            continue
+                        vr = self._page_rect_to_view(r)
+                        
+                        # 🔍 LOGS DÉTAILLÉS SPÉCIFIQUES PAGE 3
+                        if is_page_3:
+                            print(f"   B{idx+1}: PDF({r.x():.1f},{r.y():.1f},{r.width():.1f}x{r.height():.1f}) → VIEW({vr.x():.1f},{vr.y():.1f},{vr.width():.1f}x{vr.height():.1f}) [REALTIME-P3]")
+                            
+                            # 🎯 Analyse spéciale pour B1 et B2
+                            if idx == 0:  # B1
+                                print(f"      🎯 B1 ANALYSE: Center PDF({r.center().x():.1f},{r.center().y():.1f}) → VIEW({vr.center().x():.1f},{vr.center().y():.1f})")
+                                print(f"      🎯 B1 VISIBLE: Dans viewport? x∈[0,{vw}]={0 <= vr.x() <= vw}, y∈[0,{vh}]={0 <= vr.y() <= vh}")
+                            elif idx == 1:  # B2  
+                                print(f"      🎯 B2 ANALYSE: Center PDF({r.center().x():.1f},{r.center().y():.1f}) → VIEW({vr.center().x():.1f},{vr.center().y():.1f})")
+                                print(f"      🎯 B2 VISIBLE: Dans viewport? x∈[0,{vw}]={0 <= vr.x() <= vw}, y∈[0,{vh}]={0 <= vr.y() <= vh}")
+                        else:
+                            print(f"      B{idx+1}: PDF({r.x():.1f},{r.y():.1f},{r.width():.1f}x{r.height():.1f}) → View({vr.x():.1f},{vr.y():.1f},{vr.width():.1f}x{vr.height():.1f}) [REALTIME]")
+                            
+                        painter.drawRect(vr)
+                        # index en surimpression
+                        painter.setPen(QPen(QColor(255,255,255,255), 1))
+                        painter.drawText(vr.adjusted(3, 3, -3, -3), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"B{idx+1}")
+                        painter.setPen(pen_balloon)
+                else:
+                    print("   🔴 Balloons à dessiner: 0 (pas de cache PDF disponible)")
 
             # --- Debug: split lines (yellow dashed) ---
             main = self.window()
@@ -987,12 +1177,15 @@ class PanelTuningDialog(QDialog):
             try:
                 if parent and hasattr(parent, "_panel_cache"):
                     parent._panel_cache.clear()
+                if parent and hasattr(parent, "_balloon_cache"):
+                    parent._balloon_cache.clear()
                 if parent and hasattr(parent, "_ensure_panels"):
                     parent._ensure_panels(force=True)
                 if parent and hasattr(parent, "view"):
                     cur = parent.view.pageNavigator().currentPage()
                     rects = parent._panel_cache.get(cur, []) if hasattr(parent, "_panel_cache") else []
-                    parent.view.set_panel_overlay(rects, parent._panel_mode if hasattr(parent, "_panel_mode") else False)
+                    balloons = parent._balloon_cache.get(cur, []) if hasattr(parent, "_balloon_cache") else []
+                    parent.view.set_panel_overlay(rects, balloons, parent._panel_mode if hasattr(parent, "_panel_mode") else False)
                     parent.view.viewport().update()
                 if parent and hasattr(parent, "statusBar"):
                     parent.statusBar().showMessage("Panel tuning applied", 1500)
@@ -1004,9 +1197,29 @@ class PanelTuningDialog(QDialog):
 # -----------------------------
 # Main Window
 # -----------------------------
-class ComicsView(QMainWindow):
+class ComicsView(QMainWindow, ARIntegrationMixin):
     def __init__(self):
         super().__init__()
+        
+        # Initialiser AR Integration si disponible
+        ar_available = globals().get('AR_AVAILABLE', False)
+        if ar_available:
+            try:
+                # Initialisation manuelle des attributs AR
+                self.ar_page_view = None
+                self.ar_detector = None
+                self.ar_mode_enabled = False
+                self.ar_current_qimage = None
+                self.ar_pdf_document = None
+                self.ar_current_page = 0
+                self.ar_pdf_path = ""
+                pdebug("🔬 AR Integration initialisé")
+            except Exception as e:
+                pdebug(f"⚠️ Erreur init AR: {e}")
+        else:
+            # Fallback si AR non disponible
+            self.ar_mode_enabled = False
+        
         self.setWindowTitle("AnComicsViewer — Lecteur PDF Comics Intelligent")
         self.resize(980, 1000)
 
@@ -1021,12 +1234,44 @@ class ComicsView(QMainWindow):
 
         # Panels state & options
         self._debug_panels = True
-        self._panel_detector = PanelDetector(debug=self._debug_panels)
+        
+        # Vérifier si le mode AR est activé
+        self._ar_mode_enabled = os.environ.get("ANCOMICS_AR_MODE") == "1"
+        if self._ar_mode_enabled and AR_AVAILABLE:
+            pdebug("🔬 Mode AR ACTIVÉ - Overlays parfaitement alignés!")
+        
+        # Utiliser le détecteur YOLO ROBUSTE AR-COMPLIANT
+        try:
+            from .detectors.robust_yolo_detector import RobustYoloDetector
+            self._panel_detector = RobustYoloDetector()
+            print("🔥 DÉTECTEUR YOLO ROBUSTE AR-COMPLIANT ACTIVÉ !")
+        except Exception as e:
+            print(f"❌ ERREUR détecteur yolo robuste: {e}")
+            # Fallback vers ultra-robuste
+            try:
+                from .detectors.ultra_robust_detector import UltraRobustDetector
+                self._panel_detector = UltraRobustDetector()
+                print("🔄 Fallback vers UltraRobustDetector")
+            except Exception as e2:
+                print(f"❌ ERREUR fallback ultra: {e2}")
+                # Fallback final vers YOLO28H
+                try:
+                    from .detectors.yolo_28h_detector import YOLO28HDetector
+                    self._panel_detector = YOLO28HDetector(device='cpu')
+                    print("🔄 Fallback final vers YOLO28HDetector")
+                except Exception as e3:
+                    print(f"❌ ERREUR fallback final: {e3}")
+                    raise e3
+            
         self._panel_mode = False
         self._panel_framing = "fit"  # "fit" | "fill" | "center"
-        self._panel_cache: dict[int, List[QRectF]] = {}
+        self._panel_cache: dict[int, List[QRectF]] = {}       # PDF coordinates
+        self._balloon_cache: dict[int, List[QRectF]] = {}     # PDF coordinates  
+        self._panel_view_cache: dict[int, List[QRectF]] = {}  # VIEW coordinates (final)
+        self._balloon_view_cache: dict[int, List[QRectF]] = {} # VIEW coordinates (final)
+        self._page_overview_mode = False  # True when showing full page before panels
         self._panel_index = -1
-        self._det_dpi = 150.0  # detection render DPI (150/200 recommended)
+        self._det_dpi = 130.0  # detection render DPI (130 pour éviter fragmentation)
         
         # Post-processing settings
         self._snap_to_gutters = True  # Enable border snapping to gutters
@@ -1062,6 +1307,25 @@ class ComicsView(QMainWindow):
         # Hooks
         self.view.pageNavigator().currentPageChanged.connect(self._on_page_changed)
         self.view.pageNavigator().currentPageChanged.connect(self._update_status)
+        
+        # Raccourcis clavier pour navigation AR
+        self._setup_ar_shortcuts()
+
+    def _setup_ar_shortcuts(self):
+        """Configure les raccourcis clavier pour la navigation AR."""
+        # Flèches et Page Up/Down pour navigation
+        shortcuts = [
+            (Qt.Key.Key_Left, self.nav_prev),
+            (Qt.Key.Key_Right, self.nav_next),
+            (Qt.Key.Key_PageUp, self.nav_prev),
+            (Qt.Key.Key_PageDown, self.nav_next),
+        ]
+        
+        for key, slot in shortcuts:
+            action = QAction(self)
+            action.setShortcut(QKeySequence(key))
+            action.triggered.connect(slot)
+            self.addAction(action)
 
     def _setup_window_icon(self):
         """Configure l'icône de la fenêtre."""
@@ -1140,358 +1404,62 @@ class ComicsView(QMainWindow):
         settings_btn.setAutoRaise(True)
         menu = QMenu(settings_btn)
 
-        act_debug = menu.addAction("Debug logs")
-        act_debug.setCheckable(True)
-        act_debug.setChecked(self._debug_panels)
-        act_debug.toggled.connect(self._on_toggle_debug)
-
-        act_canny = menu.addAction("Use Canny fallback")
-        act_canny.setCheckable(True)
-        act_canny.setChecked(self._panel_detector.use_canny_fallback)
-        act_canny.toggled.connect(self._on_toggle_canny)
-
-        act_rtl = menu.addAction("Reading RTL (manga)")
-        act_rtl.setCheckable(True)
-        act_rtl.setChecked(self._panel_detector.reading_rtl)
-        act_rtl.toggled.connect(self._on_toggle_rtl)
-
-        # Post-processing toggles
+        # ======= MENU ULTRA-SIMPLIFIÉ POUR YOLO 28H =======
+        
+        # Informations du modèle
+        info = self._panel_detector.get_model_info()
+        model_info = menu.addAction(f"🔥 Modèle: {info['name']}")
+        model_info.setEnabled(False)  # Juste informatif
+        
+        conf_info = menu.addAction(f"⚙️ Confidence: {info['confidence']}")
+        conf_info.setEnabled(False)  # Juste informatif
+        
         menu.addSeparator()
-        self.act_snap_gutters = menu.addAction("Snap borders to gutters")
-        self.act_snap_gutters.setCheckable(True)
-        self.act_snap_gutters.setChecked(getattr(self, '_snap_to_gutters', True))
-        self.act_snap_gutters.toggled.connect(self._on_toggle_snap_gutters)
-
-        self.act_split_panels = menu.addAction("Split large panels by internal gutters")
-        self.act_split_panels.setCheckable(True)
-        self.act_split_panels.setChecked(getattr(self, '_split_by_gutters', True))
-        self.act_split_panels.toggled.connect(self._on_toggle_split_panels)
-
-        menu.addSeparator()
+        
+        # DPI de détection (les seules options utiles)
         dpi150 = menu.addAction("Detection DPI: 150")
         dpi200 = menu.addAction("Detection DPI: 200")
         dpi150.triggered.connect(lambda: self._set_det_dpi(150.0))
         dpi200.triggered.connect(lambda: self._set_det_dpi(200.0))
 
         menu.addSeparator()
+        
+        # Actions de re-détection
         rerun = menu.addAction("Re-run detection (this page)")
         rerun.triggered.connect(self._rerun_detection_current_page)
         rerun_all = menu.addAction("Re-run detection (all pages)")
         rerun_all.triggered.connect(self._rerun_detection_all)
-
-        # Detector submenu
-        det_menu = menu.addMenu("Detector")
-        act_heur = det_menu.addAction("Heuristic (OpenCV)"); act_heur.setCheckable(True); act_heur.setChecked(True)
-        act_ml   = det_menu.addAction("YOLOv8 Seg (ML)");    act_ml.setCheckable(True)
-        act_multibd = det_menu.addAction("Multi-BD (Trained)"); act_multibd.setCheckable(True)
-        act_multibd_improved = det_menu.addAction("Multi-BD Enhanced"); act_multibd_improved.setCheckable(True)
-        det_menu.addSeparator()
-        act_load = det_menu.addAction("Load ML weights…")
-        act_tune_multibd = det_menu.addAction("Tune Multi-BD parameters...")
-
-        def _switch_heur():
-            from .main_app import PanelDetector as Heur
-            self._panel_detector = Heur(debug=self._debug_panels)
-            act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False)
-            self._apply_panel_tuning(self._det_dpi)
-
-        def _switch_ml():
-            if not self._ml_weights:
-                QMessageBox.warning(self, "ML", "Load weights (.pt) first."); return
-            try:
-                from .detectors.yolo_seg import YoloSegPanelDetector
-                self._panel_detector = YoloSegPanelDetector(weights=self._ml_weights, rtl=False)
-                act_ml.setChecked(True); act_heur.setChecked(False); act_multibd.setChecked(False)
-                self._apply_panel_tuning(self._det_dpi)
-                QMessageBox.information(self, "ML", "Successfully switched to YOLOv8 detector!")
-            except Exception as e:
-                QMessageBox.critical(self, "ML Error", f"Failed to load YOLOv8 detector:\\n{str(e)}")
-                # Revert to heuristic
-                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False)
-
-        def _switch_multibd():
-            try:
-                from .detectors.multibd_detector import MultiBDPanelDetector
-                self._panel_detector = MultiBDPanelDetector()
-                act_multibd.setChecked(True); act_heur.setChecked(False); act_ml.setChecked(False)
-                self._apply_panel_tuning(self._det_dpi)
-                
-                # Afficher les infos du modèle
-                info = self._panel_detector.get_model_info()
-                msg = f"✅ Modèle Multi-BD activé!\n\n"
-                msg += f"📊 Performance: mAP50 {info['performance']['mAP50']}\n"
-                msg += f"🎯 Entraîné sur: {', '.join(info['training_data'])}\n"
-                msg += f"🔧 Seuil confiance: {info['confidence']}"
-                QMessageBox.information(self, "Multi-BD Detector", msg)
-            except Exception as e:
-                QMessageBox.critical(self, "Multi-BD Error", f"Échec chargement détecteur Multi-BD:\\n{str(e)}")
-                # Revert to heuristic
-                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False); act_multibd_improved.setChecked(False)
-
-        def _switch_multibd_improved():
-            try:
-                # Import du détecteur amélioré
-                try:
-                    from .detectors.multibd_detector import MultiBDPanelDetector
-                except ImportError as e:
-                    if "matplotlib" in str(e):
-                        QMessageBox.critical(self, "Dépendance manquante", 
-                            "❌ Module matplotlib requis pour Multi-BD\n\n"
-                            "💡 Solutions:\n"
-                            "1. Installer: pip install matplotlib\n"
-                            "2. Ou utiliser: .venv/bin/pip install matplotlib\n"
-                            "3. Ou lancer via: ./run.sh (auto-install)\n\n"
-                            "🔄 Retour au détecteur Heuristique")
-                        act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False); act_multibd_improved.setChecked(False)
-                        return
-                    else:
-                        raise e
-                
-                # Classe améliorée intégrée
-                class ImprovedMultiBDDetector(MultiBDPanelDetector):
-                    def __init__(self, **kwargs):
-                        super().__init__(conf=0.15, iou=0.4, **kwargs)  # Paramètres optimisés
-                        
-                    def detect_panels(self, qimage, page_point_size):
-                        raw_panels = super().detect_panels(qimage, page_point_size)
-                        if not raw_panels:
-                            return []
-                            
-                        filtered = []
-                        page_height = page_point_size.height()
-                        page_width = page_point_size.width()
-                        page_area = page_width * page_height
-                        
-                        for panel in raw_panels:
-                            # Filtrer zone titre (25% du haut)
-                            if panel.y() < page_height * 0.25:
-                                aspect_ratio = panel.width() / panel.height()
-                                if aspect_ratio > 4.0:  # Ligne de texte probable
-                                    continue
-                                if panel.width() < page_width * 0.3:  # Trop étroit pour titre zone
-                                    continue
-                                    
-                            # Filtrer par taille (0.8% minimum de la page)
-                            if panel.width() * panel.height() < page_area * 0.008:
-                                continue
-                                
-                            # Filtrer par ratio aspect anormal
-                            aspect_ratio = panel.width() / panel.height()
-                            if aspect_ratio > 4.0 or aspect_ratio < 0.2:
-                                continue
-                                
-                            filtered.append(panel)
-                        
-                        return filtered
-                
-                self._panel_detector = ImprovedMultiBDDetector()
-                act_multibd_improved.setChecked(True)
-                act_heur.setChecked(False); act_ml.setChecked(False); act_multibd.setChecked(False)
-                self._apply_panel_tuning(self._det_dpi)
-                
-                # Message d'information
-                QMessageBox.information(self, "Multi-BD Enhanced", 
-                    "✅ Détecteur Multi-BD Amélioré activé!\n\n"
-                    "🎯 Améliorations:\n"
-                    "• Filtrage intelligent des zones de titre\n"
-                    "• Paramètres optimisés (conf=0.15, iou=0.4)\n"
-                    "• Post-traitement par ratio aspect\n"
-                    "• Réduction des faux positifs\n\n"
-                    "💡 Basé sur le diagnostic automatique du modèle")
-            except Exception as e:
-                QMessageBox.critical(self, "Enhanced Multi-BD Error", f"Échec chargement détecteur amélioré:\\n{str(e)}")
-                # Revert to heuristic
-                act_heur.setChecked(True); act_ml.setChecked(False); act_multibd.setChecked(False); act_multibd_improved.setChecked(False)
-
-        def _tune_multibd_params():
-            # Dialog simple pour ajuster les paramètres Multi-BD
-            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton
-            from PySide6.QtCore import Qt
-            
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Multi-BD Parameters Tuning")
-            dialog.resize(400, 200)
-            
-            layout = QVBoxLayout(dialog)
-            
-            # Confidence slider
-            conf_layout = QHBoxLayout()
-            conf_layout.addWidget(QLabel("Confidence:"))
-            conf_slider = QSlider()
-            conf_slider.setOrientation(Qt.Orientation.Horizontal)
-            conf_slider.setRange(5, 50)  # 0.05 à 0.50
-            conf_slider.setValue(20)  # 0.20
-            conf_label = QLabel("0.20")
-            conf_layout.addWidget(conf_slider)
-            conf_layout.addWidget(conf_label)
-            layout.addLayout(conf_layout)
-            
-            # IoU slider  
-            iou_layout = QHBoxLayout()
-            iou_layout.addWidget(QLabel("IoU Threshold:"))
-            iou_slider = QSlider()
-            iou_slider.setOrientation(Qt.Orientation.Horizontal)
-            iou_slider.setRange(20, 80)  # 0.20 à 0.80
-            iou_slider.setValue(50)  # 0.50
-            iou_label = QLabel("0.50")
-            iou_layout.addWidget(iou_slider)
-            iou_layout.addWidget(iou_label)
-            layout.addLayout(iou_layout)
-            
-            # Update labels
-            def update_conf():
-                val = conf_slider.value() / 100.0
-                conf_label.setText(f"{val:.2f}")
-            def update_iou():
-                val = iou_slider.value() / 100.0
-                iou_label.setText(f"{val:.2f}")
-                
-            conf_slider.valueChanged.connect(update_conf)
-            iou_slider.valueChanged.connect(update_iou)
-            
-            # Buttons
-            btn_layout = QHBoxLayout()
-            apply_btn = QPushButton("Apply")
-            cancel_btn = QPushButton("Cancel")
-            btn_layout.addWidget(apply_btn)
-            btn_layout.addWidget(cancel_btn)
-            layout.addLayout(btn_layout)
-            
-            def apply_params():
-                # Pour la classe améliorée, on recrée l'instance avec les nouveaux paramètres
-                if hasattr(self._panel_detector, '__class__') and 'ImprovedMultiBDDetector' in str(self._panel_detector.__class__):
-                    conf_val = conf_slider.value() / 100.0
-                    iou_val = iou_slider.value() / 100.0
-                    try:
-                        # Recrée le détecteur avec les nouveaux paramètres
-                        from .detectors.multibd_detector import MultiBDPanelDetector
-                        
-                        class ImprovedMultiBDDetector(MultiBDPanelDetector):
-                            def __init__(self, **kwargs):
-                                super().__init__(conf=conf_val, iou=iou_val, **kwargs)
-                                
-                            def detect_panels(self, qimage, page_point_size):
-                                raw_panels = super().detect_panels(qimage, page_point_size)
-                                if not raw_panels:
-                                    return []
-                                    
-                                filtered = []
-                                page_height = page_point_size.height()
-                                page_width = page_point_size.width()
-                                page_area = page_width * page_height
-                                
-                                for panel in raw_panels:
-                                    # Filtrer zone titre (25% du haut)
-                                    if panel.y() < page_height * 0.25:
-                                        aspect_ratio = panel.width() / panel.height()
-                                        if aspect_ratio > 4.0:  # Ligne de texte probable
-                                            continue
-                                        if panel.width() < page_width * 0.3:  # Trop étroit pour titre zone
-                                            continue
-                                            
-                                    # Filtrer par taille (0.8% minimum de la page)
-                                    if panel.width() * panel.height() < page_area * 0.008:
-                                        continue
-                                        
-                                    # Filtrer par ratio aspect anormal
-                                    aspect_ratio = panel.width() / panel.height()
-                                    if aspect_ratio > 4.0 or aspect_ratio < 0.2:
-                                        continue
-                                        
-                                    filtered.append(panel)
-                                
-                                return filtered
-                        
-                        self._panel_detector = ImprovedMultiBDDetector()
-                        self._apply_panel_tuning(self._det_dpi)
-                        dialog.accept()
-                        QMessageBox.information(self, "Parameters Updated", 
-                            f"Paramètres mis à jour:\nConfidence: {conf_val:.2f}\nIoU: {iou_val:.2f}")
-                    except Exception as e:
-                        QMessageBox.critical(self, "Update Error", f"Erreur mise à jour paramètres:\n{str(e)}")
-                else:
-                    QMessageBox.warning(self, "Not Supported", "Le détecteur actuel ne supporte pas cette fonctionnalité.\nUtilisez le détecteur Multi-BD Amélioré d'abord.")
-            
-            apply_btn.clicked.connect(apply_params)
-            cancel_btn.clicked.connect(dialog.reject)
-            
-            dialog.exec()
-
-        def _load_weights():
-            p, _ = QFileDialog.getOpenFileName(self, "Load YOLO weights", self._default_dir(), "PT files (*.pt)")
-            if p: self._ml_weights = p; QMessageBox.information(self, "ML", f"Loaded weights:\\n{p}")
-
-        act_heur.triggered.connect(_switch_heur)
-        act_ml.triggered.connect(_switch_ml)
-        act_multibd.triggered.connect(_switch_multibd)
-        act_multibd_improved.triggered.connect(_switch_multibd_improved)
-        act_tune_multibd.triggered.connect(_tune_multibd_params)
-        act_load.triggered.connect(_load_weights)
-
-        # Advanced tuning dialog
+        
         menu.addSeparator()
-        adv = menu.addAction("Advanced tuning…")
-        def _open_tuning():
-            dlg = PanelTuningDialog(self, self._panel_detector, self._det_dpi)
-            dlg.exec()
-        adv.triggered.connect(_open_tuning)
+        
+        # DEBUG: Force clear cache and re-detect
+        debug_redetect = menu.addAction("🔧 DEBUG: Force clear cache & re-detect (Ctrl+Shift+R)")
+        debug_redetect.triggered.connect(self.debug_force_redetect_current_page)
+        debug_redetect.setShortcut(QKeySequence("Ctrl+Shift+R"))
 
-        # Presets
-        presets = menu.addMenu("Presets")
-        p_fb   = presets.addAction("Franco-Belge")
-        p_mg   = presets.addAction("Manga")
-        p_np   = presets.addAction("Newspaper")
+        # ======= FINI - PLUS DE COMPLEXITÉ ! =======
+        # 🔥 SYSTÈME ULTRA-SIMPLIFIÉ : YOLO 28H UNIQUEMENT
+        # Tous les anciens menus détecteur ont été supprimés
 
-        def _apply_preset(name):
-            d = self._panel_detector
-            if name == "Franco-Belge":
-                self._det_dpi = 200
-                d.adaptive_block, d.adaptive_C = 51, 5
-                d.morph_kernel, d.morph_iter   = 7, 2
-                d.min_rect_px = d.min_panel_px = 60
-                d.light_col_rel, d.light_row_rel = 0.12, 0.12
-                d.gutter_cov_min = 0.90
-                d.min_gutter_px, d.max_gutter_px_frac = 8, 0.06
-                d.edge_margin_frac = 0.03
-                d.filter_title_rows = True
-                d.title_row_top_frac, d.title_row_max_h_frac = 0.28, 0.18
-                d.title_row_min_boxes, d.title_row_min_meanL = 2, 0.88
-                d.title_row_median_w_frac_max = 0.30
-                setattr(d, "row_band_frac", 0.06)
-                setattr(d, "proj_smooth_k", 29)
-                d.max_panels_per_page = 20
-                d.reading_rtl = False
-            elif name == "Manga":
-                self._det_dpi = 200
-                d.adaptive_block, d.adaptive_C = 51, 4
-                d.morph_kernel, d.morph_iter   = 7, 2
-                d.min_rect_px = d.min_panel_px = 50
-                d.light_col_rel, d.light_row_rel = 0.10, 0.10
-                d.gutter_cov_min = 0.85
-                d.min_gutter_px, d.max_gutter_px_frac = 6, 0.10
-                d.edge_margin_frac = 0.02
-                d.filter_title_rows = True
-                d.title_row_top_frac, d.title_row_max_h_frac = 0.18, 0.10
-                d.title_row_min_boxes, d.title_row_min_meanL = 4, 0.78
-                d.max_panels_per_page = 24
-                d.reading_rtl = True
-            else:  # Newspaper
-                self._det_dpi = 150
-                d.adaptive_block, d.adaptive_C = 41, 6
-                d.morph_kernel, d.morph_iter   = 5, 2
-                d.min_rect_px = d.min_panel_px = 50
-                d.light_col_rel, d.light_row_rel = 0.14, 0.14
-                d.gutter_cov_min = 0.88
-                d.min_gutter_px, d.max_gutter_px_frac = 6, 0.06
-                d.edge_margin_frac = 0.03
-                d.filter_title_rows = False
-                d.max_panels_per_page = 16
-                d.reading_rtl = False
-            self._apply_panel_tuning(self._det_dpi)
+        menu.addSeparator()
 
-        p_fb.triggered.connect(lambda: _apply_preset("Franco-Belge"))
-        p_mg.triggered.connect(lambda: _apply_preset("Manga"))
-        p_np.triggered.connect(lambda: _apply_preset("Newspaper"))
+        # 🔥 MÉNAGE TERMINÉ - SYSTÈME ULTRA-SIMPLIFIÉ 
+        # Suppression complète de tous les anciens détecteurs et menus
+        
+        # Advanced tuning dialog (désactivé pour simplification)
+        # menu.addSeparator()
+        # adv = menu.addAction("Advanced tuning…")
+        # def _open_tuning():
+        #     dlg = PanelTuningDialog(self, self._panel_detector, self._det_dpi)
+        #     dlg.exec()
+        # adv.triggered.connect(_open_tuning)
+
+        # 🔥 MÉNAGE TERMINÉ - SYSTÈME ULTRA-SIMPLIFIÉ 
+        # Suppression complète de tous les anciens détecteurs et menus
+
+        # ======= MÉTRIQUES SIMPLIFIÉES =======
+
+        # ======= MÉTRIQUES SIMPLIFIÉES =======
 
         settings_btn.setMenu(menu)
         settings_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -1592,18 +1560,18 @@ class ComicsView(QMainWindow):
         sep.setFixedWidth(6)
         tb.addWidget(sep)
 
-    # ---------- Settings handlers ----------
+    # ---------- Settings handlers (simplifiés) ----------
     def _on_toggle_debug(self, checked: bool):
         self._debug_panels = checked
-        self._panel_detector.debug = checked
+        # 🔥 YOLO28HDetector n'a pas de propriété debug - simplifié
         self.statusBar().showMessage(f"Debug logs {'ON' if checked else 'OFF'}", 1500)
 
     def _on_toggle_canny(self, checked: bool):
-        self._panel_detector.use_canny_fallback = checked
+        # 🔥 YOLO28HDetector n'utilise pas Canny - simplifié
         self.statusBar().showMessage(f"Canny fallback {'ON' if checked else 'OFF'}", 1500)
 
     def _on_toggle_rtl(self, checked: bool):
-        self._panel_detector.reading_rtl = checked
+        # 🔥 YOLO28HDetector n'a pas de mode RTL - simplifié
         self.statusBar().showMessage(f"Reading {'RTL' if checked else 'LTR'}", 1500)
 
     def _on_toggle_snap_gutters(self, checked: bool):
@@ -1611,6 +1579,7 @@ class ComicsView(QMainWindow):
         self._snap_to_gutters = checked
         # Clear cache to force re-detection with new settings
         self._panel_cache.clear()
+        self._balloon_cache.clear()
         self._ensure_panels(force=True)
         self.statusBar().showMessage(f"Snap to gutters {'ON' if checked else 'OFF'}", 1500)
 
@@ -1619,6 +1588,7 @@ class ComicsView(QMainWindow):
         self._split_by_gutters = checked
         # Clear cache to force re-detection with new settings
         self._panel_cache.clear()
+        self._balloon_cache.clear()
         self._ensure_panels(force=True)
         self.statusBar().showMessage(f"Split large panels {'ON' if checked else 'OFF'}", 1500)
 
@@ -1641,66 +1611,33 @@ class ComicsView(QMainWindow):
             self._det_dpi = float(new_dpi)
             self._panel_index = -1
             self._panel_cache.clear()
+            self._balloon_cache.clear()
             self._ensure_panels(force=True)
             cur = self.view.pageNavigator().currentPage()
             rects = self._panel_cache.get(cur, [])
-            self.view.set_panel_overlay(rects, self._panel_mode)
+            balloons = self._balloon_cache.get(cur, [])
+            self.view.set_panel_overlay(rects, balloons, self._panel_mode)
             self.view.viewport().update()
             self.statusBar().showMessage("Panel tuning applied", 1500)
         except Exception:
             pdebug("_apply_panel_tuning error:\n" + traceback.format_exc())
 
-    # ---------- Public API for command-line control ----------
+    # ---------- Public API for command-line control (simplifié) ----------
     def apply_preset(self, name: str):
         """Apply a detection preset by name. Public API for command-line usage."""
-        d = self._panel_detector
+        # 🔥 SYSTÈME SIMPLIFIÉ - YOLO28HDetector n'a pas de presets configurables
         name_lower = name.lower()
         
         if name_lower in ("fb", "franco-belge", "francobelge"):
             self._det_dpi = 200
-            d.adaptive_block, d.adaptive_C = 51, 5
-            d.morph_kernel, d.morph_iter = 7, 2
-            d.min_rect_px = d.min_panel_px = 60
-            d.light_col_rel, d.light_row_rel = 0.12, 0.12
-            d.gutter_cov_min = 0.90
-            d.min_gutter_px, d.max_gutter_px_frac = 8, 0.06
-            d.edge_margin_frac = 0.03
-            d.filter_title_rows = True
-            d.title_row_top_frac, d.title_row_max_h_frac = 0.28, 0.18
-            d.title_row_min_boxes, d.title_row_min_meanL = 2, 0.88
-            d.title_row_median_w_frac_max = 0.30
-            setattr(d, "row_band_frac", 0.06)
-            setattr(d, "proj_smooth_k", 29)
-            d.max_panels_per_page = 20
-            d.reading_rtl = False
         elif name_lower in ("manga", "jp"):
             self._det_dpi = 150
-            d.adaptive_block, d.adaptive_C = 25, 8
-            d.morph_kernel, d.morph_iter = 3, 1
-            d.min_rect_px = d.min_panel_px = 30
-            d.light_col_rel, d.light_row_rel = 0.08, 0.08
-            d.gutter_cov_min = 0.75
-            d.min_gutter_px, d.max_gutter_px_frac = 4, 0.08
-            d.edge_margin_frac = 0.02
-            d.filter_title_rows = False
-            d.max_panels_per_page = 12
-            d.reading_rtl = True
         elif name_lower in ("newspaper", "news", "us"):
             self._det_dpi = 200
-            d.adaptive_block, d.adaptive_C = 35, 6
-            d.morph_kernel, d.morph_iter = 5, 2
-            d.min_rect_px = d.min_panel_px = 80
-            d.light_col_rel, d.light_row_rel = 0.15, 0.15
-            d.gutter_cov_min = 0.85
-            d.min_gutter_px, d.max_gutter_px_frac = 12, 0.04
-            d.edge_margin_frac = 0.04
-            d.filter_title_rows = True
-            d.title_row_top_frac, d.title_row_max_h_frac = 0.20, 0.12
-            d.title_row_min_boxes, d.title_row_min_meanL = 4, 0.80
-            d.max_panels_per_page = 20
-            d.reading_rtl = False
         
+        # Le YOLO28HDetector fonctionne avec ses paramètres fixes optimaux
         self._apply_panel_tuning(self._det_dpi)
+        pdebug(f"🔥 Preset '{name}' appliqué - DPI: {self._det_dpi} (YOLO28HDetector)")
 
     def set_detector(self, name: str):
         """Switch detector by name. Public API for command-line usage."""
@@ -1741,11 +1678,13 @@ class ComicsView(QMainWindow):
         """Clear the detector cache for all pages and re-run detection for the current page."""
         try:
             self._panel_cache.clear()
+            self._balloon_cache.clear()
             self._panel_index = -1
             self._ensure_panels(force=True)
             cur = self.view.pageNavigator().currentPage()
             rects = self._panel_cache.get(cur, [])
-            self.view.set_panel_overlay(rects, self._panel_mode)
+            balloons = self._balloon_cache.get(cur, [])
+            self.view.set_panel_overlay(rects, balloons, self._panel_mode)
             self.view.viewport().update()
             self.statusBar().showMessage("Re-run detection completed", 1500)
         except Exception:
@@ -1772,6 +1711,144 @@ class ComicsView(QMainWindow):
         except Exception as e:
             pdebug(f"⚠️ Failed to save last file setting: {e}")
     
+    # ---------- Navigation AR ----------
+    def enable_ar_mode(self):
+        """Active le mode AR avec PageView."""
+        ar_available = globals().get('AR_AVAILABLE', False)
+        if not ar_available:
+            return
+            
+        try:
+            from .ui.page_view import PageView
+            from .detectors.adaptive_ultra_robust_detector import AdaptiveUltraRobustDetector
+            
+            pdebug("🔄 Activation du mode AR...")
+            
+            # Créer le PageView
+            self.ar_page_view = PageView()
+            
+            # Créer le détecteur adaptatif
+            self.ar_detector = AdaptiveUltraRobustDetector()
+            
+            # Remplacer la vue centrale
+            if hasattr(self, 'view') and self.view:
+                self.traditional_view = self.view
+                
+            if hasattr(self, 'setCentralWidget'):
+                self.setCentralWidget(self.ar_page_view)
+            
+            self.ar_mode_enabled = True
+            pdebug("✅ Mode AR activé - PageView opérationnel")
+            
+        except Exception as e:
+            pdebug(f"❌ Erreur activation AR: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def ar_load_and_render_pdf(self, pdf_path: str, page_num: int = 0):
+        """Charge un PDF et rend une page avec détection AR."""
+        ar_available = globals().get('AR_AVAILABLE', False)
+        if not ar_available or not hasattr(self, 'ar_page_view') or not self.ar_page_view:
+            pdebug("❌ Mode AR non activé ou PageView manquant")
+            return None
+            
+        try:
+            from PySide6.QtPdf import QPdfDocument
+            
+            pdebug(f"📖 Chargement PDF: {pdf_path}")
+            
+            # Fermer le document précédent s'il existe
+            if hasattr(self, 'ar_pdf_document') and self.ar_pdf_document:
+                self.ar_pdf_document.close()
+            
+            # Créer et charger le nouveau document
+            self.ar_pdf_document = QPdfDocument()
+            self.ar_pdf_document.load(pdf_path)
+            
+            if self.ar_pdf_document.status() != QPdfDocument.Status.Ready:
+                pdebug(f"❌ Impossible de charger le PDF: {pdf_path}")
+                return None
+                
+            # Conserver les infos pour la navigation
+            self.ar_pdf_path = pdf_path
+            self.ar_current_page = page_num
+                
+            pdebug(f"✅ PDF chargé - {self.ar_pdf_document.pageCount()} pages")
+            
+            # Rendre la page demandée
+            return self.ar_render_page(page_num)
+            
+        except Exception as e:
+            pdebug(f"❌ Erreur rendu AR: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def ar_render_page(self, page_num: int):
+        """Rend une page spécifique du PDF AR."""
+        if not hasattr(self, 'ar_pdf_document') or not self.ar_pdf_document:
+            pdebug("❌ Pas de document PDF AR")
+            return None
+            
+        if page_num < 0 or page_num >= self.ar_pdf_document.pageCount():
+            pdebug(f"❌ Page {page_num} inexistante (max: {self.ar_pdf_document.pageCount()-1})")
+            return None
+        
+        try:
+            # Rendre la page
+            page_size = self.ar_pdf_document.pagePointSize(page_num)
+            dpi = 200
+            qimg = self.ar_pdf_document.render(page_num, QSize(int(page_size.width() * dpi / 72), int(page_size.height() * dpi / 72)))
+            
+            if qimg.isNull():
+                pdebug(f"❌ Échec rendu page {page_num}")
+                return None
+                
+            pdebug(f"✅ Page {page_num} rendue: {qimg.width()}x{qimg.height()}")
+            
+            # Mettre à jour l'état
+            self.ar_current_page = page_num
+            self.ar_current_qimage = qimg
+            
+            # Afficher dans PageView
+            self.ar_page_view.show_qimage(qimg)
+            
+            # Lancer la détection
+            if hasattr(self, 'ar_detector') and self.ar_detector:
+                dets = self.ar_detector.detect_on_qimage(qimg)
+                pdebug(f"🔍 Détections: {len(dets)} panels")
+                
+                # Dessiner les overlays
+                self.ar_page_view.draw_detections(dets, show_fullframe_debug=True)
+            
+            return qimg
+            
+        except Exception as e:
+            pdebug(f"❌ Erreur rendu page {page_num}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def ar_next_page(self) -> bool:
+        """Aller à la page suivante."""
+        if not hasattr(self, 'ar_pdf_document') or not self.ar_pdf_document:
+            return False
+            
+        next_page = getattr(self, 'ar_current_page', 0) + 1
+        if next_page < self.ar_pdf_document.pageCount():
+            return self.ar_render_page(next_page) is not None
+        return False
+    
+    def ar_prev_page(self) -> bool:
+        """Aller à la page précédente."""
+        if not hasattr(self, 'ar_pdf_document') or not self.ar_pdf_document:
+            return False
+            
+        prev_page = getattr(self, 'ar_current_page', 0) - 1
+        if prev_page >= 0:
+            return self.ar_render_page(prev_page) is not None
+        return False
+
     def _load_last_file(self) -> Optional[str]:
         """Load the path of the last opened file from settings."""
         try:
@@ -1794,53 +1871,132 @@ class ComicsView(QMainWindow):
             return self.load_pdf(last_file)
         return False
 
+    def _load_pdf_ar_mode(self, path: str) -> bool:
+        """Charge un PDF en mode AR avec PageView."""
+        try:
+            pdebug(f"🔬 Chargement PDF en mode AR: {path}")
+            
+            # Activer le mode AR via l'intégration
+            self.enable_ar_mode()
+            
+            # Afficher la page 0 avec le PDF chargé
+            qimage = self.ar_load_and_render_pdf(path, 0)
+            
+            if qimage is not None:
+                pdebug(f"✅ PDF AR chargé avec succès!")
+                self._current_path = path
+                self.setWindowTitle(f"AnComicsViewer AR — {os.path.basename(path)}")
+                return True
+            else:
+                pdebug(f"❌ Échec du rendu AR")
+                return False
+                
+        except Exception as e:
+            pdebug(f"❌ Erreur mode AR: {e}")
+            traceback.print_exc()
+            return False
+
     def load_pdf(self, path: str) -> bool:
+        pdebug(f"🔄 load_pdf() called with: {path}")
+        
         if not path or not os.path.exists(path) or not path.lower().endswith(".pdf"):
+            pdebug(f"❌ Invalid PDF path: {path}")
             QMessageBox.warning(self, "Invalid File", "Please select a valid PDF file.")
             return False
 
+        pdebug(f"✅ Path validation OK")
+
+        # Si mode AR activé, utiliser la vue AR
+        if self._ar_mode_enabled and AR_AVAILABLE:
+            pdebug(f"🔬 Mode AR détecté - Basculement vers PageView...")
+            return self._load_pdf_ar_mode(path)
+
         # Release previous doc fully (Windows-safe)
         if self.document is not None:
+            pdebug(f"🧹 Releasing previous document...")
             try:
                 self.view.setDocument(QPdfDocument())  # clear ref from view
+                pdebug(f"✅ View cleared")
                 self.document.close()
+                pdebug(f"✅ Document closed")
                 self.document.deleteLater()
-            except Exception:
-                pass
+                pdebug(f"✅ Document deleted")
+            except Exception as e:
+                pdebug(f"⚠️ Error releasing previous doc: {e}")
             self.document = None
+            pdebug(f"✅ Document set to None")
 
+        pdebug(f"📖 Creating new QPdfDocument...")
         doc = QPdfDocument(self)
+        pdebug(f"✅ QPdfDocument created")
+        
+        pdebug(f"📂 Loading PDF file...")
         err = doc.load(path)
+        pdebug(f"✅ doc.load() returned: {err}")
+        
         success = False
         try:
             if hasattr(QPdfDocument.Error, "None_") and err == QPdfDocument.Error.None_:
                 success = True
-        except Exception:
-            pass
+                pdebug(f"✅ Success via None_ check")
+        except Exception as e:
+            pdebug(f"⚠️ Error checking None_: {e}")
+            
         try:
             # Simple check: if err is 0 or has value 0, consider success
             if err == 0 or str(err) == "0" or getattr(err, "value", None) == 0:
                 success = True
-        except Exception:
-            pass
+                pdebug(f"✅ Success via zero check")
+        except Exception as e:
+            pdebug(f"⚠️ Error checking zero: {e}")
 
+        pdebug(f"📊 Load success: {success}")
+        
         if not success or doc.pageCount() <= 0:
+            pdebug(f"❌ Load failed or no pages: success={success}, pages={doc.pageCount()}")
             QMessageBox.critical(self, "Load Error", "Failed to load PDF (corrupted/unsupported).")
             doc.deleteLater()
             return False
 
+        pdebug(f"✅ PDF loaded successfully, pages: {doc.pageCount()}")
+        
+        pdebug(f"🔗 Setting document references...")
         self.document = doc
+        pdebug(f"✅ self.document set")
+        
         self._current_path = path
+        pdebug(f"✅ _current_path set")
+        
+        pdebug(f"🖼️ Setting view document...")
         self.view.setDocument(self.document)
+        pdebug(f"✅ view.setDocument() done")
+        
+        pdebug(f"🏷️ Setting window title...")
         self.setWindowTitle(f"ComicsView — {os.path.basename(path)}")
+        pdebug(f"✅ Window title set")
 
         # Save this file as the last opened file
+        pdebug(f"💾 Saving as last file...")
         self._save_last_file(path)
+        pdebug(f"✅ Last file saved")
 
+        pdebug(f"📐 Calling fit_page()...")
         self.fit_page()  # sensible default for comics
+        pdebug(f"✅ fit_page() done")
+        
+        pdebug(f"🧹 Clearing panel cache...")
         self._panel_cache.clear()
+        self._balloon_cache.clear()
+        pdebug(f"✅ Panel cache cleared")
+        
         self._panel_index = -1
+        pdebug(f"✅ Panel index reset")
+        
+        pdebug(f"📊 Updating status...")
         self._update_status()
+        pdebug(f"✅ Status updated")
+        
+        pdebug(f"🎉 load_pdf() completed successfully!")
         return True
 
     # ---------- Export ----------
@@ -1876,13 +2032,23 @@ class ComicsView(QMainWindow):
             self.view.pageNavigator().jump(self.document.pageCount() - 1, QPointF(0, 0))
 
     def nav_prev(self):
-        if self.document:
+        # Mode AR : utiliser la navigation AR
+        ar_available = globals().get('AR_AVAILABLE', False)
+        if self._ar_mode_enabled and ar_available:
+            pdebug("🔬 Navigation AR : page précédente")
+            self.ar_prev_page()
+        elif self.document:
             cur = self.view.pageNavigator().currentPage()
             if cur > 0:
                 self.view.pageNavigator().jump(cur - 1, QPointF(0, 0))
 
     def nav_next(self):
-        if self.document:
+        # Mode AR : utiliser la navigation AR
+        ar_available = globals().get('AR_AVAILABLE', False)
+        if self._ar_mode_enabled and ar_available:
+            pdebug("🔬 Navigation AR : page suivante")
+            self.ar_next_page()
+        elif self.document:
             cur = self.view.pageNavigator().currentPage()
             if cur < self.document.pageCount() - 1:
                 self.view.pageNavigator().jump(cur + 1, QPointF(0, 0))
@@ -1910,9 +2076,16 @@ class ComicsView(QMainWindow):
             self._update_status()
 
     def fit_page(self):
+        pdebug(f"📐 fit_page() called")
         if self.document:
+            pdebug(f"📐 Setting zoom mode to FitInView...")
             self.view.setZoomMode(QPdfView.ZoomMode.FitInView)
+            pdebug(f"✅ Zoom mode set")
+            pdebug(f"📊 Calling _update_status from fit_page...")
             self._update_status()
+            pdebug(f"✅ _update_status done from fit_page")
+        else:
+            pdebug(f"⚠️ fit_page() called but no document")
 
     # ---------- Panels ----------
     def toggle_panels(self):
@@ -1921,11 +2094,13 @@ class ComicsView(QMainWindow):
         self._panel_mode = not self._panel_mode
         self.view.setPageMode(QPdfView.PageMode.SinglePage if self._panel_mode else QPdfView.PageMode.MultiPage)
         self._panel_index = -1
+        self._page_overview_mode = False  # Reset overview mode
         self._ensure_panels(force=True)
         cur = self.view.pageNavigator().currentPage()
         rects = self._panel_cache.get(cur, [])
+        balloons = self._balloon_cache.get(cur, [])
         pdebug(f"toggle: page={cur} rects={len(rects)}")
-        self.view.set_panel_overlay(rects, self._panel_mode)
+        self.view.set_panel_overlay(rects, balloons, self._panel_mode)
         self.statusBar().showMessage("Panel mode ON" if self._panel_mode else "Panel mode OFF", 2000)
 
     def panel_next(self):
@@ -1937,6 +2112,20 @@ class ComicsView(QMainWindow):
             self._ensure_panels_for(cur)
             rects = self._panel_cache.get(cur, [])
             
+            # Si on est en mode overview, passer au premier panel de la page
+            if self._page_overview_mode:
+                if rects:
+                    self._page_overview_mode = False
+                    self._panel_index = 0
+                    self._focus_panel(rects[0])
+                    pdebug(f"panel_next (overview->panel) -> page {cur}, panel 1/{len(rects)}")
+                    self.statusBar().showMessage(f"Page {cur + 1}: panel 1/{len(rects)}", 3000)
+                    return
+                else:
+                    # Pas de panels sur cette page, continuer vers la suivante
+                    self._page_overview_mode = False
+                    self._panel_index = -1
+            
             # Cas spécial : gestion de l'état initial _panel_index == -1
             if self._panel_index == -1:
                 # Chercher la première page avec des panels à partir de la page courante
@@ -1945,11 +2134,16 @@ class ComicsView(QMainWindow):
                     page_rects = self._panel_cache.get(page, [])
                     if page_rects:
                         if page != cur:
-                            self._goto_page_and_overlay(page)
+                            # Aller à la nouvelle page et montrer l'overview
+                            self._show_page_overview(page)
+                            self._panel_index = -1  # Sera géré au prochain panel_next
+                            pdebug(f"panel_next (init) -> page {page} overview")
+                        else:
+                            # Même page, commencer directement avec les panels
+                            self._panel_index = 0
+                            self._focus_panel(page_rects[0])
+                            pdebug(f"panel_next (init) -> page {page}, panel 1/{len(page_rects)}")
                             self.statusBar().showMessage(f"Page {page + 1}: panel 1/{len(page_rects)}", 3000)
-                        self._panel_index = 0
-                        self._focus_panel(page_rects[0])
-                        pdebug(f"panel_next (init) -> page {page}, panel 1/{len(page_rects)}")
                         return
                 # Aucune page avec panels trouvée
                 self.statusBar().showMessage("No panels found in document", 2000)
@@ -1961,11 +2155,10 @@ class ComicsView(QMainWindow):
                     self._ensure_panels_for(page)
                     page_rects = self._panel_cache.get(page, [])
                     if page_rects:
-                        self._goto_page_and_overlay(page)
-                        self._panel_index = 0
-                        self._focus_panel(page_rects[0])
-                        self.statusBar().showMessage(f"Page {page + 1}: panel 1/{len(page_rects)}", 3000)
-                        pdebug(f"panel_next (no panels) -> page {page}, panel 1/{len(page_rects)}")
+                        # Afficher d'abord la page overview
+                        self._show_page_overview(page)
+                        self._panel_index = -1  # Sera géré au prochain panel_next
+                        pdebug(f"panel_next (no panels) -> page {page} overview")
                         return
                 # Aucune page suivante avec panels
                 self.statusBar().showMessage("No more panels in document", 2000)
@@ -1977,8 +2170,11 @@ class ComicsView(QMainWindow):
                     self._ensure_panels_for(page)
                     page_rects = self._panel_cache.get(page, [])
                     if page_rects:
-                        self._goto_page_and_overlay(page)
-                        self._panel_index = 0
+                        # D'abord montrer la page entière comme overview
+                        self._show_page_overview(page)
+                        self._panel_index = -1  # Sera incrémenté au prochain panel_next
+                        pdebug(f"panel_next (page jump) -> page {page} overview")
+                        return
                         self._focus_panel(page_rects[0])
                         self.statusBar().showMessage(f"Page {page + 1}: panel 1/{len(page_rects)}", 3000)
                         pdebug(f"panel_next (page jump) -> page {page}, panel 1/{len(page_rects)}")
@@ -2003,6 +2199,20 @@ class ComicsView(QMainWindow):
             cur = self.view.pageNavigator().currentPage()
             self._ensure_panels_for(cur)
             rects = self._panel_cache.get(cur, [])
+            
+            # Si on est en mode overview, aller à la dernière case de la page
+            if self._page_overview_mode:
+                if rects:
+                    self._page_overview_mode = False
+                    self._panel_index = len(rects) - 1
+                    self._focus_panel(rects[self._panel_index])
+                    pdebug(f"panel_prev (overview->panel) -> page {cur}, panel {len(rects)}/{len(rects)}")
+                    self.statusBar().showMessage(f"Page {cur + 1}: panel {len(rects)}/{len(rects)}", 3000)
+                    return
+                else:
+                    # Pas de panels sur cette page, continuer vers la précédente
+                    self._page_overview_mode = False
+                    self._panel_index = -1
             
             # Cas spécial : gestion de l'état initial _panel_index == -1
             if self._panel_index == -1:
@@ -2072,7 +2282,8 @@ class ComicsView(QMainWindow):
         self._ensure_panels_for(page)
         # Récupérer et afficher l'overlay
         rects = self._panel_cache.get(page, [])
-        self.view.set_panel_overlay(rects, self._panel_mode)
+        balloons = self._balloon_cache.get(page, [])
+        self.view.set_panel_overlay(rects, balloons, self._panel_mode)
 
     def _ensure_panels_for(self, page: int, force: bool = False):
         """Helper pour détecter les cases d'une page donnée avec cache amélioré."""
@@ -2100,16 +2311,35 @@ class ComicsView(QMainWindow):
             scale = dpi / 72.0
             qsize = QSizeF(pt.width() * scale, pt.height() * scale).toSize()
             qimg = self.document.render(page, qsize)
-            rects = self._panel_detector.detect_panels(qimg, pt)
-            self._panel_cache[page] = rects
+            
+            # Détecter panels ET balloons avec les vraies dimensions
+            if hasattr(self._panel_detector, 'detect_panels_and_balloons'):
+                # Passer à la fois la taille de page PDF (pt) ET la taille image (qsize)
+                panels, balloons = self._panel_detector.detect_panels_and_balloons(qimg, pt, qsize)
+                print(f"🔍 DÉTECTION Page {page}: {len(panels)} panels + {len(balloons)} balloons")
+                print(f"   📐 Page size: {pt.width():.1f}x{pt.height():.1f} pts")
+                print(f"   🖼️ Image size: {qsize.width()}x{qsize.height()} px")
+                print(f"   🟢 PANELS détectés:")
+                for i, panel in enumerate(panels):
+                    print(f"      P{i+1}: ({panel.x():.1f},{panel.y():.1f},{panel.width():.1f}x{panel.height():.1f})")
+                print(f"   🔴 BALLOONS détectés:")
+                for i, balloon in enumerate(balloons):
+                    print(f"      B{i+1}: ({balloon.x():.1f},{balloon.y():.1f},{balloon.width():.1f}x{balloon.height():.1f})")
+            else:
+                panels = self._panel_detector.detect_panels(qimg, pt)
+                balloons = []
+                print(f"🔍 DÉTECTION Page {page}: {len(panels)} panels (pas de balloons)")
+            
+            self._panel_cache[page] = panels
+            self._balloon_cache[page] = balloons
             
             # Sauvegarder dans le cache amélioré
             if self._enhanced_cache and self._current_path:
                 self._enhanced_cache.save_panels(
-                    self._current_path, page, rects, self._panel_detector
+                    self._current_path, page, panels, self._panel_detector
                 )
             
-            pdebug(f"ensure_panels_for: page={page}, panels={len(rects)} @ {int(dpi)} DPI")
+            pdebug(f"ensure_panels_for: page={page}, panels={len(panels)} balloons={len(balloons)} @ {int(dpi)} DPI")
         except Exception:
             pdebug("ensure_panels_for error:\n" + traceback.format_exc())
             self._panel_cache[page] = []
@@ -2120,7 +2350,243 @@ class ComicsView(QMainWindow):
             pdebug("ensure_panels: no document")
             return
         cur = self.view.pageNavigator().currentPage()
+        
+        # 🔍 DEBUG ÉTAT VIEWPORT APRÈS DÉLAI (si force=True)
+        if force:
+            doc = self.view.document()
+            if doc:
+                page_pts = doc.pagePointSize(cur)
+                z = self.view.zoomFactor()
+                vw = self.view.viewport().width()
+                vh = self.view.viewport().height()
+                content_w = page_pts.width() * z
+                content_h = page_pts.height() * z
+                pad_x = max(0.0, (vw - content_w) / 2.0)
+                pad_y = max(0.0, (vh - content_h) / 2.0)
+                sx = self.view.horizontalScrollBar().value()
+                sy = self.view.verticalScrollBar().value()
+                print(f"🔧 VIEWPORT STATE APRÈS DÉLAI Page {cur}:")
+                print(f"   🔍 Zoom: {z:.3f}")
+                print(f"   🖼️ Viewport: {vw}x{vh}")
+                print(f"   📄 Content: {content_w:.1f}x{content_h:.1f}")
+                print(f"   🅿️ Padding: ({pad_x:.1f},{pad_y:.1f})")
+                print(f"   📜 Scroll: ({sx},{sy})")
+        
         self._ensure_panels_for(cur, force)
+
+    def _delayed_ensure_panels(self, attempt: int = 1, max_attempts: int = 5):
+        """Re-détection avec vérification de stabilité du viewport."""
+        if not self.document:
+            return
+            
+        cur = self.view.pageNavigator().currentPage()
+        doc = self.view.document()
+        
+        if doc:
+            page_pts = doc.pagePointSize(cur)
+            z = self.view.zoomFactor()
+            vw = self.view.viewport().width()
+            vh = self.view.viewport().height()
+            content_w = page_pts.width() * z
+            content_h = page_pts.height() * z
+            pad_x = max(0.0, (vw - content_w) / 2.0)
+            pad_y = max(0.0, (vh - content_h) / 2.0)
+            sx = self.view.horizontalScrollBar().value()
+            sy = self.view.verticalScrollBar().value()
+            
+            print(f"🔧 VIEWPORT APRÈS DÉLAI {attempt} Page {cur}:")
+            print(f"   🔍 Zoom: {z:.3f}")
+            print(f"   🖼️ Viewport: {vw}x{vh}")
+            print(f"   📄 Content: {content_w:.1f}x{content_h:.1f}")
+            print(f"   🅿️ Padding: ({pad_x:.1f},{pad_y:.1f})")
+            print(f"   📜 Scroll: ({sx},{sy})")
+            
+            # 🔄 VÉRIFIER si le zoom OU le scroll ont changé depuis la dernière conversion VIEW
+            zoom_changed = (hasattr(self, '_last_cached_zoom') and 
+                           abs(z - self._last_cached_zoom) > 0.001)
+            
+            scroll_changed = (hasattr(self, '_last_cached_scroll') and 
+                             (abs(sx - self._last_cached_scroll[0]) > 5 or 
+                              abs(sy - self._last_cached_scroll[1]) > 5))
+            
+            # 🎯 VÉRIFIER STABILITÉ DU ZOOM entre deux appels successifs
+            if hasattr(self, '_last_attempt_zoom'):
+                zoom_stabilizing = abs(z - self._last_attempt_zoom) < 0.001
+                print(f"🔄 ZOOM: {self._last_attempt_zoom:.3f} → {z:.3f} (stable: {zoom_stabilizing})")
+            else:
+                zoom_stabilizing = False
+                print(f"🔄 ZOOM: Premier appel à {z:.3f}")
+            
+            # Mémoriser le zoom de cette tentative
+            self._last_attempt_zoom = z
+            
+            if zoom_changed:
+                print(f"🔄 ZOOM CHANGÉ: {getattr(self, '_last_cached_zoom', 'N/A')} → {z:.3f}")
+                print("🗑️ Invalidation cache VIEW (zoom différent)")
+                self._panel_view_cache.clear()
+                self._balloon_view_cache.clear()
+            
+            if scroll_changed:
+                print(f"🔄 SCROLL CHANGÉ: {getattr(self, '_last_cached_scroll', 'N/A')} → ({sx},{sy})")
+                print("🗑️ Invalidation cache VIEW (scroll différent)")
+                self._panel_view_cache.clear()
+                self._balloon_view_cache.clear()
+            
+            # 🎯 VÉRIFIER STABILITÉ : zoom valide ET scroll proche de zéro (page overview) ET zoom stabilisé
+            viewport_stable = (z > 0.1 and content_w > 0 and content_h > 0)
+            scroll_stable = (abs(sx) < 50 and abs(sy) < 50)  # Tolérance pour scroll proche de 0
+            
+            # 🔧 CONDITION SUPPLÉMENTAIRE : le zoom doit être stable entre deux tentatives
+            # OU on a atteint le nombre max de tentatives
+            zoom_stable = zoom_stabilizing or attempt >= max_attempts
+            
+            # Pour le mode overview, on s'attend à un scroll proche de (0,0) ET un zoom stable
+            all_stable = viewport_stable and scroll_stable and zoom_stable
+            
+            # 🔍 LOGS SPÉCIAUX POUR PAGE 3
+            if cur == 2:  # Page 3 (index 2)
+                print(f"   🎯 PAGE 3 STABILITÉ: viewport={viewport_stable}, scroll={scroll_stable}, zoom_stable={zoom_stable} -> global={all_stable}")
+            else:
+                print(f"   📊 Stabilité: viewport={viewport_stable}, scroll={scroll_stable}, zoom_stable={zoom_stable} -> global={all_stable}")
+            
+            if all_stable or attempt >= max_attempts:
+                print(f"✅ VIEWPORT {'STABLE' if all_stable else 'TIMEOUT'} - Lancement re-détection")
+                
+                # 🎯 TOUJOURS forcer la re-détection pour s'assurer d'avoir les bonnes coordonnées PDF
+                self._ensure_panels(force=True)
+                
+                # 🎯 APRÈS la re-détection, récupérer les résultats et TOUJOURS recalculer les coordonnées VIEW
+                cur = self.view.pageNavigator().currentPage()
+                rects = self._panel_cache.get(cur, [])
+                balloons = self._balloon_cache.get(cur, [])
+                
+                # 🔄 TOUJOURS CONVERTIR les coordonnées PDF vers VIEW (même si on a un cache)
+                # Car le viewport peut avoir changé depuis la dernière fois
+                view_panels = []
+                view_balloons = []
+                
+                for panel in rects:
+                    view_rect = self.view._page_rect_to_view(panel)
+                    view_panels.append(view_rect)
+                    
+                for balloon in balloons:
+                    view_rect = self.view._page_rect_to_view(balloon)
+                    view_balloons.append(view_rect)
+                
+                # 💾 TOUJOURS mettre à jour le cache VIEW avec les nouvelles coordonnées
+                self._panel_view_cache[cur] = view_panels
+                self._balloon_view_cache[cur] = view_balloons
+                
+                # 🎯 MÉMORISER le zoom ET le scroll pour lesquels ces coordonnées VIEW sont valides
+                self._last_cached_zoom = z
+                self._last_cached_scroll = (sx, sy)
+                
+                print(f"📋 CACHE MISE À JOUR Page {cur} (zoom {z:.3f}, scroll ({sx},{sy})):")
+                print(f"   🟢 PANELS: {len(rects)} (PDF) → {len(view_panels)} (VIEW) [RECALCUL FORCÉ]")
+                for i, (panel, view_panel) in enumerate(zip(rects, view_panels)):
+                    print(f"      P{i+1}: PDF({panel.x():.1f},{panel.y():.1f},{panel.width():.1f}x{panel.height():.1f}) → VIEW({view_panel.x():.1f},{view_panel.y():.1f},{view_panel.width():.1f}x{view_panel.height():.1f})")
+                print(f"   🔴 BALLOONS: {len(balloons)} (PDF) → {len(view_balloons)} (VIEW) [RECALCUL FORCÉ]")
+                for i, (balloon, view_balloon) in enumerate(zip(balloons, view_balloons)):
+                    print(f"      B{i+1}: PDF({balloon.x():.1f},{balloon.y():.1f},{balloon.width():.1f}x{balloon.height():.1f}) → VIEW({view_balloon.x():.1f},{view_balloon.y():.1f},{view_balloon.width():.1f}x{view_balloon.height():.1f})")
+                
+                # ✅ RÉACTIVER les overlays avec les coordonnées VIEW pré-calculées
+                self.view.set_panel_overlay(view_panels, view_balloons, self._panel_mode)
+                print(f"✅ Overlays réactivés: {len(view_panels)} panels + {len(view_balloons)} balloons (coordonnées VIEW FRAÎCHES pour zoom {z:.3f})")
+                
+                # 🔄 FORCER le re-calcul des coordonnées d'affichage MAINTENANT
+                QTimer.singleShot(10, lambda: self.view.viewport().update())
+                print(f"🔄 Force refresh de l'affichage pour coordonnées stables")
+            else:
+                # 🔍 LOGS SPÉCIAUX POUR PAGE 3
+                if cur == 2:  # Page 3 (index 2)
+                    print(f"   ⏳ PAGE 3 VIEWPORT INSTABLE - Tentative {attempt+1}/{max_attempts} dans 150ms (attendre stabilisation zoom)")
+                    QTimer.singleShot(150, lambda: self._delayed_ensure_panels(attempt + 1, max_attempts))
+                else:
+                    print(f"⏳ VIEWPORT INSTABLE - Tentative {attempt+1}/{max_attempts} dans 50ms")
+                    QTimer.singleShot(50, lambda: self._delayed_ensure_panels(attempt + 1, max_attempts))
+
+    def _show_page_overview(self, page: int):
+        """Affiche la page entière comme une 'grande case' avant de naviguer case par case."""
+        try:
+            # Aller à la page
+            self.view.pageNavigator().jump(page, QPointF(0, 0))
+            
+            # Ajuster pour voir la page entière
+            self.view.setZoomMode(QPdfView.ZoomMode.FitInView)
+            
+            # Activer le mode overview
+            self._page_overview_mode = True
+            
+            # Afficher l'overlay avec toutes les cases de la page
+            self._ensure_panels_for(page)
+            rects = self._panel_cache.get(page, [])
+            balloons = self._balloon_cache.get(page, [])
+            self.view.set_panel_overlay(rects, balloons, self._panel_mode)
+            
+            pdebug(f"page_overview -> page {page} ({len(rects)} panels)")
+            self.statusBar().showMessage(f"Page {page + 1} overview - Next: panel navigation", 3000)
+            
+        except Exception:
+            pdebug("_show_page_overview error:\n" + traceback.format_exc())
+
+    def _force_clear_all_caches(self):
+        """DEBUG: Force la suppression de tous les caches pour test."""
+        pdebug("🔧 DEBUG: Forcing complete cache clear...")
+        
+        # Vider les caches mémoire
+        self._panel_cache.clear()
+        self._balloon_cache.clear()
+        pdebug("✅ Memory caches cleared")
+        
+        # Vider le cache amélioré
+        if self._enhanced_cache:
+            try:
+                # Vider tout le cache disque
+                import shutil
+                import os
+                cache_dir = os.path.expanduser("~/.ancomicsviewer/cache")
+                if os.path.exists(cache_dir):
+                    shutil.rmtree(cache_dir)
+                    os.makedirs(cache_dir, exist_ok=True)
+                    pdebug("✅ Disk cache cleared")
+            except Exception as e:
+                pdebug(f"⚠️ Could not clear disk cache: {e}")
+        
+        # Vider le cache du détecteur YOLO
+        try:
+            detector_cache = getattr(self._panel_detector, '_cache', None)
+            if detector_cache and hasattr(detector_cache, 'clear'):
+                detector_cache.clear()
+                pdebug("✅ YOLO detector cache cleared")
+            else:
+                clear_cache_method = getattr(self._panel_detector, 'clear_cache', None)
+                if clear_cache_method:
+                    clear_cache_method()
+                    pdebug("✅ Detector cache cleared")
+                else:
+                    pdebug("⚠️ No detector cache to clear")
+        except Exception as e:
+            pdebug(f"⚠️ Could not clear detector cache: {e}")
+        
+        pdebug("🔧 All caches force-cleared - next detection will be fresh!")
+
+    def debug_force_redetect_current_page(self):
+        """DEBUG: Force la re-détection de la page courante."""
+        if not self.document:
+            return
+        
+        pdebug("🔧 DEBUG: Force re-detecting current page...")
+        self._force_clear_all_caches()
+        
+        cur = self.view.pageNavigator().currentPage()
+        self._ensure_panels_for(cur, force=True)
+        
+        # Mettre à jour l'affichage
+        rects = self._panel_cache.get(cur, [])
+        balloons = self._balloon_cache.get(cur, [])
+        self.view.set_panel_overlay(rects, balloons, self._panel_mode)
+        
+        pdebug(f"✅ Re-detected: {len(rects)} panels + {len(balloons)} balloons on page {cur+1}")
 
     def _focus_panel(self, rect: QRectF):
         """Zoom selon le framing puis scroll correctement."""
@@ -2199,28 +2665,161 @@ class ComicsView(QMainWindow):
 
     def _update_status(self):
         """Update the status bar with current page and zoom info."""
+        pdebug(f"📊 _update_status() called")
         try:
             if not self.document:
+                pdebug(f"⚠️ No document in _update_status")
                 self.statusBar().showMessage("No document loaded")
                 return
+            
+            pdebug(f"📄 Getting page navigator...")
             nav = self.view.pageNavigator()
+            pdebug(f"✅ Page navigator obtained")
+            
+            pdebug(f"📍 Getting current page...")
             current = nav.currentPage() + 1
+            pdebug(f"✅ Current page: {current}")
+            
+            pdebug(f"📚 Getting page count...")
             total = self.document.pageCount()
+            pdebug(f"✅ Total pages: {total}")
+            
+            pdebug(f"🔍 Getting zoom factor...")
             zoom = int(self.view.zoomFactor() * 100)
+            pdebug(f"✅ Zoom factor: {zoom}%")
+            
+            pdebug(f"📝 Setting status message...")
             self.statusBar().showMessage(f"Page {current}/{total} | Zoom {zoom}%")
-        except Exception:
+            pdebug(f"✅ Status message set")
+            
+        except Exception as e:
+            pdebug(f"❌ Exception in _update_status: {e}")
+            import traceback
+            pdebug(f"🔍 Traceback: {traceback.format_exc()}")
             self.statusBar().showMessage("Status update error")
 
     def _on_page_changed(self):
         """Handle page change events."""
+        cur = self.view.pageNavigator().currentPage()
+        
+        # 🔍 LOGS SPÉCIAUX POUR L'ARRIVÉE SUR PAGE 3
+        if cur == 2:  # Page 3 (index 2)
+            print(f"\n🎯 === ARRIVÉE SUR PAGE 3 === _on_page_changed ===")
+            print(f"   📄 Page changée vers: {cur} (Page 3)")
+            print(f"   🔍 Zoom actuel: {self.view.zoomFactor():.6f}")
+            print(f"   📐 Viewport: {self.view.viewport().width()}x{self.view.viewport().height()}")
+            
+            # État des scrollbars
+            hscroll = self.view.horizontalScrollBar()
+            vscroll = self.view.verticalScrollBar()
+            print(f"   📜 HScroll: value={hscroll.value()}, min={hscroll.minimum()}, max={hscroll.maximum()}")
+            print(f"   📜 VScroll: value={vscroll.value()}, min={vscroll.minimum()}, max={vscroll.maximum()}")
+            
+            # État du document
+            doc = self.document
+            if doc:
+                page_pts = doc.pagePointSize(cur)
+                print(f"   📏 Page size: {page_pts.width():.1f}x{page_pts.height():.1f} pts")
+            
+            print(f"   🎯 Mode panel: {self._panel_mode}")
+            print(f"   ⏰ ATTENDRE STABILISATION DU ZOOM AVANT AFFICHAGE")
+        else:
+            pdebug(f"📄 _on_page_changed() called")
+            
         try:
             if self._panel_mode:
+                if cur == 2:
+                    print(f"   🎯 Panel mode is ON - invalidating caches")
+                else:
+                    pdebug(f"🎯 Panel mode is ON")
                 self._panel_index = -1  # Reset panel navigation
-                self._ensure_panels()
-                cur = self.view.pageNavigator().currentPage()
-                rects = self._panel_cache.get(cur, [])
-                self.view.set_panel_overlay(rects, True)
-        except Exception:
+                if cur == 2:
+                    print(f"   ✅ Panel index reset")
+                else:
+                    pdebug(f"✅ Panel index reset")
+                
+                # 🔥 INVALIDATION COMPLÈTE DU CACHE pour éviter décalage
+                if cur in self._panel_cache:
+                    del self._panel_cache[cur]
+                    if cur == 2:
+                        print(f"   🗑️ Panel cache invalidé pour page {cur}")
+                    else:
+                        pdebug(f"🗑️ Panel cache invalidé pour page {cur}")
+                if cur in self._balloon_cache:
+                    del self._balloon_cache[cur]
+                    if cur == 2:
+                        print(f"   🗑️ Balloon cache invalidé pour page {cur}")
+                    else:
+                        pdebug(f"🗑️ Balloon cache invalidé pour page {cur}")
+                # 🔥 INVALIDATION AUSSI DES COORDONNÉES VIEW PRÉ-CALCULÉES
+                if cur in self._panel_view_cache:
+                    del self._panel_view_cache[cur]
+                    if cur == 2:
+                        print(f"   🗑️ Panel VIEW cache invalidé pour page {cur}")
+                    else:
+                        pdebug(f"🗑️ Panel VIEW cache invalidé pour page {cur}")
+                if cur in self._balloon_view_cache:
+                    del self._balloon_view_cache[cur]
+                    if cur == 2:
+                        print(f"   🗑️ Balloon VIEW cache invalidé pour page {cur}")
+                    else:
+                        pdebug(f"🗑️ Balloon VIEW cache invalidé pour page {cur}")
+                
+                # Nettoyer aussi le cache du détecteur (safely)
+                try:
+                    cache = getattr(self._panel_detector, '_cache', None)
+                    if cache is not None:
+                        cache.clear()
+                        if cur == 2:
+                            print(f"   🗑️ Détecteur _cache cleared")
+                        else:
+                            pdebug(f"🗑️ Détecteur _cache cleared")
+                    else:
+                        cache = getattr(self._panel_detector, 'cache', None)
+                        if cache is not None:
+                            cache.clear()
+                            pdebug(f"🗑️ Détecteur cache cleared")
+                except Exception:
+                    pass  # Ignore if detector doesn't have cache
+                
+                pdebug(f"🔄 ATTENDRE STABILISATION VIEWPORT puis re-détecter...")
+                
+                # 🔍 DEBUG ÉTAT VIEWPORT AVANT RE-DÉTECTION
+                cur_page = self.view.pageNavigator().currentPage() 
+                doc = self.view.document()
+                if doc:
+                    page_pts = doc.pagePointSize(cur_page)
+                    z = self.view.zoomFactor()
+                    vw = self.view.viewport().width()
+                    vh = self.view.viewport().height()
+                    content_w = page_pts.width() * z
+                    content_h = page_pts.height() * z
+                    pad_x = max(0.0, (vw - content_w) / 2.0)
+                    pad_y = max(0.0, (vh - content_h) / 2.0)
+                    sx = self.view.horizontalScrollBar().value()
+                    sy = self.view.verticalScrollBar().value()
+                    print(f"🔧 VIEWPORT INITIAL Page {cur_page}:")
+                    print(f"   🔍 Zoom: {z:.3f}")
+                    print(f"   🖼️ Viewport: {vw}x{vh}")
+                    print(f"   📄 Content: {content_w:.1f}x{content_h:.1f}")
+                    print(f"   🅿️ Padding: ({pad_x:.1f},{pad_y:.1f})")
+                    print(f"   📜 Scroll: ({sx},{sy})")
+                
+                # ⏱️ DIFFÉRER avec délai plus long ET vérification multiple
+                QTimer.singleShot(100, lambda: self._delayed_ensure_panels(attempt=1))
+                pdebug(f"✅ _ensure_panels programmé avec délai 100ms + vérifications")
+                
+                # ❌ NE PAS lire du cache maintenant - il est vide !
+                # ❌ L'affichage sera fait APRÈS la re-détection dans _delayed_ensure_panels
+                pdebug(f"⏳ Affichage des overlays sera fait APRÈS la re-détection")
+                
+                # � DÉSACTIVER temporairement les overlays pour éviter affichage du cache vide
+                self.view.set_panel_overlay([], [], False)
+                pdebug(f"🚫 Overlays temporairement désactivés")
+            else:
+                pdebug(f"ℹ️ Panel mode is OFF, skipping panel logic")
+        except Exception as e:
+            pdebug(f"❌ Exception in _on_page_changed: {e}")
             pdebug("page_changed error:\n" + traceback.format_exc())
 
 

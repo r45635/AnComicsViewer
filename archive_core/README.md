@@ -1,81 +1,79 @@
-# AnComicsViewer - Archive Core
-=============================
+# 📦 Archive Core - AnComicsViewer
 
-Ce répertoire contient les outils pour créer des archives de distribution d'AnComicsViewer.
+## 🎯 Archive la plus récente (RECOMMANDÉE)
 
-## 📦 Archives Disponibles
+**`AnComicsViewer_Complete_v5.0.0_BDStabilized_20250824_1217.zip`** ⭐
 
-### `AnComicsViewer_Core_App_v2.0.0.zip` (58 KB)
-Archive légère contenant uniquement les fichiers essentiels pour faire fonctionner l'application :
+### ✅ Fonctionnalités BD Stabilized Detector v5.0
 
-- ✅ Code source principal (`main.py`, `src/ancomicsviewer/`)
-- ✅ Configuration (`setup.py`, `requirements.txt`)
-- ✅ Assets de base (icônes)
-- ✅ Scripts ML utilitaires essentiels
-- ❌ Pas de datasets volumineux
-- ❌ Pas de modèles ML (18+ MB)
-- ❌ Pas de documentation développeur
+- **Détection de panels robuste** avec configuration automatique
+- **Cache Enhanced v5** avec invalidation intelligente  
+- **Seuils de confiance optimisés** (CONF_BASE=0.05, CONF_MIN=0.01)
+- **Pipeline post-processing complet** avec filtres adaptatifs
+- **Interface graphique complète** Qt6/PySide6
+- **Scripts CLI inclus** pour validation et tests
+- **Build standalone** prêt pour distribution
 
-## 🛠️ Scripts de Génération
-
-### `create_simple_archive.py`
-Script simplifié et fiable pour créer l'archive de distribution :
-```bash
-cd archive_core/
-python create_simple_archive.py
-```
-
-### `create_app_archive.py`
-Version complète avec scan automatique des fichiers (peut être lente) :
-```bash
-cd archive_core/
-python create_app_archive.py
-```
-
-## 🎯 Utilisation de l'Archive
+### 🚀 Installation rapide
 
 ```bash
-# Extraction
-unzip AnComicsViewer_Core_App_v2.0.0.zip
+# Extraire l'archive
+unzip AnComicsViewer_Complete_v5.0.0_BDStabilized_20250824_1217.zip
 cd AnComicsViewer/
 
-# Installation
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
+# Installer les dépendances
 pip install -r requirements.txt
 
-# Lancement
-python main.py
+# Lancer l'application
+python3 main.py
 ```
 
-## 📋 Contenu de l'Archive
+### � Tests et validation
 
-**Fichiers principaux :**
-- `main.py` - Point d'entrée CLI avec arguments
-- `src/ancomicsviewer/` - Package Python principal
-- `setup.py` + `pyproject.toml` - Installation pip
-- `requirements.txt` - Dépendances de base
+```bash
+# Test minimal (imports et détecteur)
+python3 scripts/cli_minimal.py --skip-detection
 
-**Fonctionnalités incluses :**
-- ✅ Lecteur PDF interactif
-- ✅ Détection heuristique de cases (sans ML)
-- ✅ Interface PySide6 moderne
-- ✅ Cache intelligent
-- ✅ Scripts ML pour entraînement (optionnel)
+# Test de détection basique
+python3 scripts/test_basic_detection.py
 
-**Modèles ML (téléchargement séparé) :**
-- YOLO pré-entraînés (téléchargés automatiquement)
-- Multi-BD Enhanced v2.0 (disponible séparément)
+# Tests diagnostiques complets
+python3 debug_predict_raw.py
+python3 diagnostic_detection.py
+```
 
-## 🔧 Maintenance
+### 📊 Contenu de l'archive
 
-Pour mettre à jour l'archive :
-1. Modifier `create_simple_archive.py` si nécessaire
-2. Exécuter le script
-3. Tester l'archive extraite
-4. Commit et tag git pour la version
+- **56 fichiers** essentiels (48.4 MB)
+- Code source complet dans `src/`
+- Modèles YOLO dans `data/models/`
+- Documentation complète
+- Scripts de build et test
+- Configuration optimisée
 
 ---
-**Dernière mise à jour** : 19 août 2025  
-**Taille archive** : ~58 KB  
-**Fichiers inclus** : 26 fichiers essentiels
+
+## 📋 Archives précédentes
+
+### v4.0.0 (Legacy)
+- `AnComicsViewer_Core_App_v4.0.0_BDStabilized_20250824_1138.zip`
+- `AnComicsViewer_Core_App_v3.0.0_GenericTTA_20250824_0848.zip`
+
+### v2.0.0 (Historique)
+- `AnComicsViewer_Core_App_v2.0.0_12_gf599b17.zip`
+- `AnComicsViewer_Core_App_v2.0.0_11_g932a4df_dirty.zip`
+- `AnComicsViewer_Core_App_v2.0.0.zip`
+
+---
+
+## 🛠️ Scripts d'archivage
+
+- `create_complete_archive.py` - Archive complète avec tous les fichiers
+- `create_app_archive.py` - Archive application seule
+- `create_simple_archive.py` - Archive basique
+
+---
+
+**📅 Dernière mise à jour :** 24 août 2025  
+**🎯 Version recommandée :** v5.0.0 BD Stabilized  
+**✅ Statut :** Production Ready

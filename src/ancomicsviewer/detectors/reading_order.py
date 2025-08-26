@@ -1,30 +1,34 @@
-# detectors/reading_order.py
 from typing import List
-from PySide6.QtCore import QRectF, QSizeF
+import numpy as np
 
-def sort_reading_order(rects: List[QRectF], page_point_size: QSizeF, reading_rtl: bool = False, row_band_frac: float = 0.06) -> List[QRectF]:
-    if not rects:
-        return rects
-    H = float(page_point_size.height()) or 1.0
-    band = max(8.0, H * float(row_band_frac))
+def sort_reading_order(boxes_xyxy: np.ndarray, rtl: bool=False) -> np.ndarray:
+    """
+    Returns indices that sort panels row-by-row in reading order.
+    """
+    if len(boxes_xyxy) == 0:
+        return np.array([], dtype=int)
+
+    y_centers = (boxes_xyxy[:,1] + boxes_xyxy[:,3]) / 2
+    heights   = (boxes_xyxy[:,3] - boxes_xyxy[:,1])
+    thr = np.median(heights) * 0.35  # tolerant row clustering
+
+    order = np.argsort(y_centers)
     rows = []
-    for r in rects:
-        y = r.top()
-        for row in rows:
-            if abs(y - row["y"]) <= band:
-                row["items"].append(r)
-                row["y"] = min(row["y"], y)
-                break
-        else:
-            rows.append({"y": y, "items": [r]})
-    rows.sort(key=lambda rr: rr["y"])
-    out = []
-    if reading_rtl:
-        for row in rows:
-            row["items"].sort(key=lambda rr: (-rr.left(), rr.top()))
-            out.extend(row["items"])
-    else:
-        for row in rows:
-            row["items"].sort(key=lambda rr: (rr.left(), rr.top()))
-            out.extend(row["items"])
-    return out
+    row_ids = np.zeros(len(boxes_xyxy), dtype=int)
+    rid = 0; last_y = None
+    for idx in order:
+        yc = y_centers[idx]
+        if last_y is None or abs(yc - last_y) > thr:
+            rows.append([])
+            rid += 1
+            last_y = yc
+        rows[-1].append(idx)
+        row_ids[idx] = rid
+
+    indices = []
+    for r in sorted(set(row_ids)):
+        row_idxs = np.where(row_ids == r)[0]
+        xs = (boxes_xyxy[row_idxs,0] + boxes_xyxy[row_idxs,2]) / 2
+        row_sorted = row_idxs[np.argsort(-xs if rtl else xs)]
+        indices.extend(row_sorted.tolist())
+    return np.array(indices, dtype=int)

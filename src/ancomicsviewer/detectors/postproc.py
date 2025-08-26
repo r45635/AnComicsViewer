@@ -1,281 +1,133 @@
-# detectors/postproc.py
 from typing import List, Tuple
-import numpy as np, cv2
-from PySide6.QtCore import QRectF, QSizeF
+import numpy as np
 
-def lab_L(rgb: np.ndarray) -> np.ndarray:
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
-    L = lab[:, :, 0]
-    return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(L)
+# ------------------------------------------------------------
+# Geometry & IoU
+# ------------------------------------------------------------
+def _iou_xyxy(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    inter_x1 = max(ax1, bx1); inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2); inter_y2 = min(ay2, by2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter = inter_w * inter_h
+    a_area = max(0.0, (ax2-ax1)) * max(0.0, (ay2-ay1))
+    b_area = max(0.0, (bx2-bx1)) * max(0.0, (by2-by1))
+    union = a_area + b_area - inter + 1e-12
+    return inter / union
 
-def find_runs(bool_arr, min_len: int):
-    runs, start = [], None
-    for i, v in enumerate(list(bool_arr) + [False]):
-        if v and start is None:
-            start = i
-        elif (not v) and start is not None:
-            if i - start >= min_len:
-                runs.append((start, i))
-            start = None
-    return runs
-
-def _closest_center(runs, target: int):
-    if not runs:
-        return target
-    return min(((abs(((a+b)//2) - target), (a+b)//2) for a, b in runs))[1]
-
-def snap_rect_to_gutters(
-    L_img: np.ndarray,
-    rect: QRectF,
-    page_size: QSizeF,
-    px_per_pt: float,
-    min_gutter_px: int = 8,
-    cov: float = 0.90,
-    max_expand_frac: float = 0.04,
-    smooth_k: int = 17,
-) -> QRectF:
-    H, W = L_img.shape[:2]
-    x0 = max(0, int(round(rect.left()   * px_per_pt)))
-    y0 = max(0, int(round(rect.top()    * px_per_pt)))
-    ww = max(1, int(round(rect.width()  * px_per_pt)))
-    hh = max(1, int(round(rect.height() * px_per_pt)))
-
-    pad = int(max_expand_frac * min(W, H))
-    xa = max(0, x0 - pad); ya = max(0, y0 - pad)
-    xb = min(W, x0 + ww + pad); yb = min(H, y0 + hh + pad)
-    roi = L_img[ya:yb, xa:xb].astype(np.float32) / 255.0
-    if roi.size == 0:
-        return rect
-
-    col = roi.mean(axis=0); row = roi.mean(axis=1)
-    k = max(9, smooth_k)
-    if col.size >= k: col = np.convolve(col, np.ones(k) / k, mode="same")
-    if row.size >= k: row = np.convolve(row, np.ones(k) / k, mode="same")
-
-    ct = (col.max() - col.min()) * 0.15 + col.mean()
-    rt = (row.max() - row.min()) * 0.15 + row.mean()
-    vbin = col >= ct; hbin = row >= rt
-
-    v_runs = find_runs(vbin, min_gutter_px)
-    h_runs = find_runs(hbin, min_gutter_px)
-
-    Lx = x0 - xa; Rx = x0 + ww - xa
-    Ty = y0 - ya; By = y0 + hh - ya
-
-    newL = _closest_center(v_runs, Lx)
-    newR = _closest_center(v_runs, Rx)
-    newT = _closest_center(h_runs, Ty)
-    newB = _closest_center(h_runs, By)
-
-    nx = (xa + min(newL, newR)) / px_per_pt
-    ny = (ya + min(newT, newB)) / px_per_pt
-    nw = max(1.0 / px_per_pt, abs((xa + newR) - (xa + newL)) / px_per_pt)
-    nh = max(1.0 / px_per_pt, abs((ya + newB) - (ya + newT)) / px_per_pt)
-    return QRectF(nx, ny, nw, nh)
-
-def snap_rect_to_gutters_rgb(
-    rgb_img: np.ndarray,
-    rect: QRectF,
-    page_size: QSizeF,
-    px_per_pt: float,
-    min_gutter_px: int = 8,
-    cov: float = 0.90,
-    max_expand_frac: float = 0.04,
-    smooth_k: int = 17,
-) -> QRectF:
-    """Version qui accepte une image RGB et fait la conversion LAB en interne."""
-    L_img = lab_L(rgb_img)
-    return snap_rect_to_gutters(L_img, rect, page_size, px_per_pt, min_gutter_px, cov, max_expand_frac, smooth_k)
-
-# ============ NEW POST-PROCESSING FUNCTIONS ============
-
-def _to_gray01(rgb: np.ndarray) -> np.ndarray:
-    """Convert RGB to normalized grayscale."""
-    g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    return g.astype(np.float32) / 255.0
-
-def _find_gutter_pos(profile: np.ndarray, center_idx: int, max_shift: int, look_for='bright'):
-    """Scan left/right (or up/down) from a starting index and return the index of the
-    strongest local maximum (bright gutter) within a limited radius."""
-    lo = max(0, center_idx - max_shift)
-    hi = min(len(profile)-1, center_idx + max_shift)
-    window = profile[lo:hi+1]
-    k = window.argmax() if look_for == 'bright' else window.argmin()
-    return lo + int(k)
-
-def snap_panels_to_gutters(rgb: np.ndarray, rect: QRectF, pad: int = 6, max_shift: int = 10) -> QRectF:
+# ------------------------------------------------------------
+# Weighted Boxes Fusion (tiny dependency-free version)
+# ------------------------------------------------------------
+def wbf_merge(
+    boxes: List[np.ndarray],
+    scores: List[np.ndarray],
+    labels: List[np.ndarray],
+    iou_thr: float = 0.55,
+    skip_box_thr: float = 0.05,
+):
     """
-    Pull each edge of 'rect' to the nearest bright gutter line using intensity projections.
-    Works best on color pages with pale gutters.
+    boxes[t]: (N_t,4) absolute xyxy pixels   | scores[t]: (N_t,) | labels[t]: (N_t,)
+    returns merged_boxes, merged_scores, merged_labels (np arrays)
     """
-    h, w = rgb.shape[:2]
-    x1, y1 = int(rect.left()), int(rect.top())
-    x2, y2 = int(rect.right()), int(rect.bottom())
-    x1 = np.clip(x1, 0, w-1); x2 = np.clip(x2, 0, w-1)
-    y1 = np.clip(y1, 0, h-1); y2 = np.clip(y2, 0, h-1)
+    if not boxes:
+        return (np.zeros((0, 4)), np.zeros((0,)), np.zeros((0,), dtype=int))
 
-    g = _to_gray01(rgb)
+    all_b = np.concatenate(boxes, axis=0).astype(float)
+    all_s = np.concatenate(scores, axis=0).astype(float)
+    all_l = np.concatenate(labels, axis=0).astype(int)
 
-    # vertical projections near each vertical edge
-    vx_left  = g[y1:y2, max(0, x1-pad):min(w, x1+pad)].mean(axis=1) if x1 < x2 else None
-    vx_right = g[y1:y2, max(0, x2-pad):min(w, x2+pad)].mean(axis=1) if x1 < x2 else None
+    keep = all_s >= skip_box_thr
+    all_b, all_s, all_l = all_b[keep], all_s[keep], all_l[keep]
 
-    # horizontal projections near each horizontal edge
-    hx_top    = g[max(0, y1-pad):min(h, y1+pad), x1:x2].mean(axis=0) if y1 < y2 else None
-    hx_bottom = g[max(0, y2-pad):min(h, y2+pad), x1:x2].mean(axis=0) if y1 < y2 else None
+    out_b, out_s, out_l = [], [], []
+    for cls in np.unique(all_l):
+        idx = np.where(all_l == cls)[0]
+        b = all_b[idx]; s = all_s[idx]
+        order = np.argsort(-s); b = b[order]; s = s[order]
 
-    # snap y1 / y2 to the brightest rows
-    if vx_left is not None and len(vx_left) > 0:
-        j = _find_gutter_pos(vx_left, 0, min(max_shift, len(vx_left)//3), 'bright')
-        y1 = y1 + j
-        j = _find_gutter_pos(vx_left, len(vx_left)-1, min(max_shift, len(vx_left)//3), 'bright')
-        y2 = y1 + j
+        clusters, cluster_scores = [], []
+        for box, sc in zip(b, s):
+            placed = False
+            for ci, cb in enumerate(clusters):
+                if _iou_xyxy(box, cb) >= iou_thr:
+                    w = cluster_scores[ci] + sc + 1e-9
+                    clusters[ci] = (cb*cluster_scores[ci] + box*sc) / w
+                    cluster_scores[ci] += sc
+                    placed = True
+                    break
+            if not placed:
+                clusters.append(box.copy())
+                cluster_scores.append(sc)
 
-    # snap x1 / x2 to the brightest cols
-    if hx_top is not None and len(hx_top) > 0:
-        i = _find_gutter_pos(hx_top, 0, min(max_shift, len(hx_top)//3), 'bright')
-        x1 = x1 + i
-    if hx_bottom is not None and len(hx_bottom) > 0:
-        i = _find_gutter_pos(hx_bottom, len(hx_bottom)-1, min(max_shift, len(hx_bottom)//3), 'bright')
-        x2 = x1 + i
+        out_b.extend(clusters)
+        out_s.extend([min(1.0, cs) for cs in cluster_scores])
+        out_l.extend([cls]*len(clusters))
 
-    if x2 <= x1 or y2 <= y1:
-        return rect  # fallback
-    return QRectF(float(x1), float(y1), float(x2-x1), float(y2-y1))
+    return np.array(out_b), np.array(out_s), np.array(out_l, dtype=int)
 
-def split_by_internal_gutters(rgb: np.ndarray, rect: QRectF) -> list[QRectF]:
+# ------------------------------------------------------------
+# Noise filtering & inset relabeling
+# ------------------------------------------------------------
+def filter_noise(
+    boxes_xyxy: np.ndarray,
+    scores: np.ndarray,
+    labels: np.ndarray,
+    page_w: int,
+    page_h: int,
+    min_conf: float = 0.15,
+    min_rel_area: float = 0.008,
+    max_rel_area: float = 0.95,
+    max_aspect: float = 9.0,
+):
+    if len(boxes_xyxy) == 0:
+        return boxes_xyxy, scores, labels
+    W, H = float(page_w), float(page_h)
+    areas = (boxes_xyxy[:,2]-boxes_xyxy[:,0])*(boxes_xyxy[:,3]-boxes_xyxy[:,1])
+    rel_areas = areas / (W*H + 1e-9)
+    widths  = (boxes_xyxy[:,2]-boxes_xyxy[:,0])
+    heights = (boxes_xyxy[:,3]-boxes_xyxy[:,1])
+    aspect  = np.maximum(widths/heights, heights/widths)
+
+    keep = (
+        (scores >= min_conf) &
+        (rel_areas >= min_rel_area) &
+        (rel_areas <= max_rel_area) &
+        (aspect <= max_aspect)
+    )
+    return boxes_xyxy[keep], scores[keep], labels[keep]
+
+def classify_panels_and_insets(
+    boxes_xyxy: np.ndarray,
+    scores: np.ndarray,
+    labels: np.ndarray,
+    page_w: int,
+    page_h: int,
+    inset_ratio: float = 0.6,
+):
     """
-    If a large rect likely contains multiple panels, split along vertical bright bands.
-    More conservative approach with harder conditions.
+    Relabels as panel (0) vs panel_inset (1) using containment + area ratio.
+    Balloons (label 2) pass through unchanged.
     """
-    h, w = rgb.shape[:2]
-    x1, y1 = int(rect.left()), int(rect.top())
-    x2, y2 = int(rect.right()), int(rect.bottom())
-    
-    # Safety checks
-    if x1 >= x2 or y1 >= y2 or x1 < 0 or y1 < 0 or x2 > w or y2 > h:
-        return [rect]
-        
-    roi = rgb[y1:y2, x1:x2]
-    L = lab_L(roi)  # Use LAB L channel with CLAHE
-    H, W = L.shape[:2]
-    
-    # Bandes/gouttières doivent être franchement larges
-    min_band_ratio = 0.04
-    min_gap_px = max(20, int(0.02 * W))
+    if len(boxes_xyxy) == 0:
+        return boxes_xyxy, scores, labels
 
-    vproj = L.mean(axis=0)
-    # Exiger des bandes très claires (évite neige/ciel)
-    thr = max(215, vproj.mean() + 0.60 * vproj.std())
-    mask = vproj > thr
-    spans = find_runs(mask, int(min_band_ratio * W))
+    out_labels = labels.copy()
+    areas = (boxes_xyxy[:,2]-boxes_xyxy[:,0])*(boxes_xyxy[:,3]-boxes_xyxy[:,1])
 
-    # Filtrer par faible densité d'arêtes (vraies gouttières = peu d'arêtes)
-    edges = cv2.Canny(L, 60, 180)
-    def edge_density(x1_span, x2_span):
-        sl = edges[:, max(0, x1_span):min(W, x2_span)]
-        return float((sl > 0).mean())
-    
-    spans = [(x1_span, x2_span) for (x1_span, x2_span) in spans if edge_density(x1_span, x2_span) < 0.05]
-
-    if not spans:
-        return [rect]
-
-    # Créer les découpes
-    splits = [0]
-    for x1_span, x2_span in spans:
-        # Couper au milieu de la bande claire
-        splits.append((x1_span + x2_span) // 2)
-    splits.append(W)
-    splits = sorted(set(splits))
-    
-    pieces = []
-    for a, b in zip(splits, splits[1:]):
-        if b - a > 0.15 * W:  # Ignorer les tranches trop fines
-            pieces.append(QRectF(float(x1 + a), float(y1), float(b - a), float(y2 - y1)))
-
-    return pieces if len(pieces) > 1 else [rect]
-
-def lab_L(rgb: np.ndarray) -> np.ndarray:
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
-    L = lab[:, :, 0]
-    return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(L)
-
-def find_runs(bool_arr, min_len: int):
-    runs, start = [], None
-    for i, v in enumerate(list(bool_arr) + [False]):
-        if v and start is None:
-            start = i
-        elif (not v) and start is not None:
-            if i - start >= min_len:
-                runs.append((start, i))
-            start = None
-    return runs
-
-def _closest_center(runs, target: int):
-    if not runs:
-        return target
-    return min(((abs(((a+b)//2) - target), (a+b)//2) for a, b in runs))[1]
-
-def snap_rect_to_gutters(
-    L_img: np.ndarray,
-    rect: QRectF,
-    page_size: QSizeF,
-    px_per_pt: float,
-    min_gutter_px: int = 8,
-    cov: float = 0.90,
-    max_expand_frac: float = 0.04,
-    smooth_k: int = 17,
-) -> QRectF:
-    H, W = L_img.shape[:2]
-    x0 = max(0, int(round(rect.left()   * px_per_pt)))
-    y0 = max(0, int(round(rect.top()    * px_per_pt)))
-    ww = max(1, int(round(rect.width()  * px_per_pt)))
-    hh = max(1, int(round(rect.height() * px_per_pt)))
-
-    pad = int(max_expand_frac * min(W, H))
-    xa = max(0, x0 - pad); ya = max(0, y0 - pad)
-    xb = min(W, x0 + ww + pad); yb = min(H, y0 + hh + pad)
-    roi = L_img[ya:yb, xa:xb].astype(np.float32) / 255.0
-    if roi.size == 0:
-        return rect
-
-    col = roi.mean(axis=0); row = roi.mean(axis=1)
-    k = max(9, smooth_k)
-    if col.size >= k: col = np.convolve(col, np.ones(k) / k, mode="same")
-    if row.size >= k: row = np.convolve(row, np.ones(k) / k, mode="same")
-
-    ct = (col.max() - col.min()) * 0.15 + col.mean()
-    rt = (row.max() - row.min()) * 0.15 + row.mean()
-    vbin = col >= ct; hbin = row >= rt
-
-    v_runs = find_runs(vbin, min_gutter_px)
-    h_runs = find_runs(hbin, min_gutter_px)
-
-    Lx = x0 - xa; Rx = x0 + ww - xa
-    Ty = y0 - ya; By = y0 + hh - ya
-
-    newL = _closest_center(v_runs, Lx)
-    newR = _closest_center(v_runs, Rx)
-    newT = _closest_center(h_runs, Ty)
-    newB = _closest_center(h_runs, By)
-
-    nx = (xa + min(newL, newR)) / px_per_pt
-    ny = (ya + min(newT, newB)) / px_per_pt
-    nw = max(1.0 / px_per_pt, abs((xa + newR) - (xa + newL)) / px_per_pt)
-    nh = max(1.0 / px_per_pt, abs((ya + newB) - (ya + newT)) / px_per_pt)
-    return QRectF(nx, ny, nw, nh)
-
-def snap_rect_to_gutters_rgb(
-    rgb_img: np.ndarray,
-    rect: QRectF,
-    page_size: QSizeF,
-    px_per_pt: float,
-    min_gutter_px: int = 8,
-    cov: float = 0.90,
-    max_expand_frac: float = 0.04,
-    smooth_k: int = 17,
-) -> QRectF:
-    """Version qui accepte une image RGB et fait la conversion LAB en interne."""
-    L_img = lab_L(rgb_img)
-    return snap_rect_to_gutters(L_img, rect, page_size, px_per_pt, min_gutter_px, cov, max_expand_frac, smooth_k)
+    for i in range(len(boxes_xyxy)):
+        xi1, yi1, xi2, yi2 = boxes_xyxy[i]
+        for j in range(len(boxes_xyxy)):
+            if i == j: 
+                continue
+            xj1, yj1, xj2, yj2 = boxes_xyxy[j]
+            if xi1 >= xj1 and yi1 >= yj1 and xi2 <= xj2 and yi2 <= yj2:
+                if areas[i] / (areas[j] + 1e-9) <= inset_ratio:
+                    out_labels[i] = 1  # inset
+                else:
+                    out_labels[i] = 0  # panel
+                break
+        if out_labels[i] not in (0,1,2):
+            out_labels[i] = 0  # default -> panel
+    return boxes_xyxy, scores, out_labels

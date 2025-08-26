@@ -68,7 +68,13 @@ def should_include_file(file_path, base_dir):
         return False
     
     # Fichiers spécifiques à inclure (configuration et setup)
-    core_files = {'requirements.txt', 'requirements-ml.txt', 'setup.py', 'pyproject.toml', 'MANIFEST.in', 'main.py', 'ARCHIVE_README.md'}
+    core_files = {
+        'requirements.txt', 'requirements-ml.txt', 'setup.py', 'pyproject.toml', 
+        'MANIFEST.in', 'main.py', 'ARCHIVE_README.md',
+        # Nouveaux fichiers AR et tests
+        'test_ar_viewer.py', 'test_ar_pdf_integration.py', 'test_ar_requirements.py',
+        'test_navigation.py'
+    }
     if file_path.name in core_files:
         return True
     
@@ -104,8 +110,11 @@ def should_include_file(file_path, base_dir):
         if file_path.name not in {'icon.ico', 'icon.png'}:
             return False
     
-    # Fichiers de test à exclure
+    # Fichiers de test à exclure (sauf les tests AR importants)
     if any(pattern in path_str for pattern in ['test_', '_test', 'tests']):
+        # Garder les tests AR essentiels
+        if file_path.name in {'test_ar_viewer.py', 'test_ar_pdf_integration.py', 'test_ar_requirements.py', 'test_navigation.py'}:
+            return True
         return False
     
     # Documentation à exclure
@@ -240,7 +249,9 @@ def create_app_archive():
     print(f"   1. Extraire: unzip {archive_name}")
     print(f"   2. Installer: cd AnComicsViewer && pip install -r requirements.txt")
     print(f"   3. Lancer: python main.py")
-    print(f"   4. Ou installer package: pip install -e .")
+    print(f"   4. Mode AR: python main.py --ar-mode votre_pdf.pdf")
+    print(f"   5. Test AR: python main.py --ar-test")
+    print(f"   6. Ou installer package: pip install -e .")
     
     return archive_path
 

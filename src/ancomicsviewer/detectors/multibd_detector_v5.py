@@ -80,40 +80,28 @@ class MultiBDPanelDetector(BasePanelDetector):
         super().__init__()
         self.device = device
         self.config = BDConfig()
-        self.model_name = "BD Stabilized Detector v5.0 (28h Training)"
+        self.model_name = "BD Stabilized Detector v5.0"
         
-        # Initialiser le détecteur interne avec le modèle de 28h d'entraînement
-        weights_path_28h = "runs/multibd_enhanced_v2/yolov8s-mps-1280/weights/best.pt"
+        # Initialiser le détecteur interne
+        weights_path = "data/models/multibd_enhanced_v2.pt"
+        if not os.path.exists(weights_path):
+            logger.error(f"Model weights not found: {weights_path}")
+            raise FileNotFoundError(f"Model weights not found: {weights_path}")
         
-        print(f"🔍 DEBUG: Vérification du modèle de 28h : {weights_path_28h}")
-        print(f"🔍 DEBUG: Existe ? {os.path.exists(weights_path_28h)}")
-        
-        if os.path.exists(weights_path_28h):
-            weights_path = weights_path_28h
-            print(f"✅ DEBUG: UTILISATION DU MODÈLE 28H : {weights_path}")
-        else:
-            weights_path = "data/models/multibd_enhanced_v2.pt"
-            print(f"⚠️  DEBUG: FALLBACK vers ancien modèle : {weights_path}")
-            if not os.path.exists(weights_path):
-                print(f"❌ DEBUG: Model weights not found: {weights_path}")
-                raise FileNotFoundError(f"Model weights not found: {weights_path}")
-        
-        print(f"🔄 DEBUG: Chargement du modèle BD : {weights_path}")
+        logger.info(f"🔄 Chargement du modèle BD : {weights_path}")
         self._detector = PanelDetector(weights_path, device)
-        print(f"✅ DEBUG: BD Stabilized Detector chargé : {weights_path}")
+        logger.info(f"✅ BD Stabilized Detector chargé : {weights_path}")
     
     def detect_panels(self, qimage: QImage, dpi: int = 150) -> List[QRectF]:
         """
         Détecte les panels dans une QImage.
         Interface compatible avec l'ancien système.
         """
-        print(f"🎯 DEBUG: MultiBDPanelDetector.detect_panels() APPELÉ !")
-        print(f"🎯 DEBUG: Modèle utilisé: {self.model_name}")
         try:
             # Conversion QImage -> numpy
             img_rgb = qimage_to_rgb(qimage)
             h, w = img_rgb.shape[:2]
-            print(f"🎯 DEBUG: YOLO Processing page {w}x{h} avec conf={self.config.CONF_BASE}")
+            logger.info(f"Processing page {w}x{h}")
 
             # Détection avec le nouveau système
             panels = self._detector.detect(

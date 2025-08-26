@@ -87,3 +87,19 @@ temp_*/
 La Pin-up du B24 - T01.pdf
 Tintin - 161 - Le Lotus Bleu - .pdf
 Golden City - T01 - Pilleurs d'épaves.pdf
+
+# Archives temporaires
+*.zip
+AnComicsViewer_v*.zip
+archive_core/*.zip
+
+# Images de test et debug
+*.png
+*.jpg
+debug_output.log
+temp_test.png
+test_page.png
+realistic_page.png
+COMPARISON_*.png
+DEBUG_PANELS_*.png
+detection_result_*.jpg
