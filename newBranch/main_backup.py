@@ -226,166 +226,102 @@ class PdfYoloViewer(QMainWindow):
         self.model_status.setText(f"🟢 {os.path.basename(path)}")
 
     def _run_detection(self):
-        """
-        Tiled + multi-pass detection to boost recall on small/edge panels/balloons.
-        - Full image pass
-        - Tiled passes (overlap) at same scale
-        - Optional gamma/unsharp variants
-        - Class-wise thresholds + IoU merge
-        """
-        self.dets: List[Detection] = []
-        if self.qimage_current is None:
-            return
-        if self.model is None:
-            self.status.showMessage("⚠️ No model loaded — use 'Load model…'")
-            return
+    self.dets: List[Detection] = []
+    if self.qimage_current is None or self.model is None:
+        return
 
-        import numpy as _np
+    rgb = qimage_to_rgb(self.qimage_current)
+    H, W = rgb.shape[:2]
 
-        rgb = qimage_to_rgb(self.qimage_current)
-        H, W = rgb.shape[:2]
+    # Seuils de confiance par classe
+    PANEL_CONF = 0.08   # plus permissif pour panels (avant 0.12)
+    BAL_CONF   = 0.25   # bulles un peu plus strict
+    IOU_MERGE  = 0.60
 
-        # --- thresholds & params ---
-        PANEL_CONF = 0.08    # permissive for panels (↑ recall)
-        BAL_CONF   = 0.22    # balloons a bit stricter
-        IOU_MERGE  = 0.55    # slightly lower to fuse tile duplicates
-        MAX_DET    = 500
+    # Taille d’entrée dynamique pour YOLO (on pousse plus haut)
+    max_side = max(H, W)
+    imgsz = min(1792, max(960, max_side // 2))  # avant 1536
+    imgsz -= imgsz % 32  # arrondi multiple de 32
 
-        # imgsz for the model (kept reasonable; tiling does the heavy lifting)
-        max_side = max(H, W)
-        imgsz = min(1536, max(960, max_side // 2))
-        imgsz -= imgsz % 32
+    def predict_once(img):
+        res = self.model.predict(
+            source=img,
+            imgsz=imgsz,
+            conf=min(PANEL_CONF, BAL_CONF),  # filtrage fin ensuite
+            iou=0.6,
+            max_det=400,
+            augment=True,   # TTA
+            verbose=False,
+            device="mps" if os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK","1") else None
+        )[0]
+        out = []
+        if res.boxes is not None and len(res.boxes) > 0:
+            xyxy = res.boxes.xyxy.cpu().numpy()
+            cls  = res.boxes.cls.cpu().numpy().astype(int)
+            conf = res.boxes.conf.cpu().numpy()
+            for (x1,y1,x2,y2), c, p in zip(xyxy, cls, conf):
+                if c == 0 and p < PANEL_CONF:  continue
+                if c == 1 and p < BAL_CONF:    continue
+                if (c==0 and not self.show_panels) or (c==1 and not self.show_balloons): continue
+                out.append((c, float(p), QRectF(float(x1), float(y1), float(x2-x1), float(y2-y1))))
+        return out
 
-        # --- helpers ---
-        def predict_once(img) -> list[tuple[int, float, QRectF]]:
-            res = self.model.predict(
-                source=img, imgsz=imgsz,
-                conf=min(PANEL_CONF, BAL_CONF),
-                iou=0.6, max_det=MAX_DET,
-                augment=True, verbose=False,
-                device="mps" if os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK", "1") else None
-            )[0]
-            out = []
-            if res.boxes is not None and len(res.boxes) > 0:
-                xyxy = res.boxes.xyxy.cpu().numpy()
-                cls  = res.boxes.cls.cpu().numpy().astype(int)
-                conf = res.boxes.conf.cpu().numpy()
-                for (x1, y1, x2, y2), c, p in zip(xyxy, cls, conf):
-                    if c == 0 and p < PANEL_CONF:  continue
-                    if c == 1 and p < BAL_CONF:    continue
-                    if (c == 0 and not self.show_panels) or (c == 1 and not self.show_balloons):
-                        continue
-                    out.append((c, float(p), QRectF(float(x1), float(y1), float(x2 - x1), float(y2 - y1))))
-            return out
+    # Pass 1: brut
+    dets_accum = predict_once(rgb)
 
-        def merge_iou(dets: list[tuple[int, float, QRectF]]) -> list[tuple[int, float, QRectF]]:
-            def iou(a: QRectF, b: QRectF) -> float:
-                inter = a.intersected(b)
-                if inter.isEmpty(): return 0.0
-                ia = inter.width()*inter.height()
-                ua = a.width()*a.height() + b.width()*b.height() - ia
-                return ia / max(ua, 1e-6)
+    # Pass 2: gamma léger (améliore bords clairs/pâles)
+    try:
+        g = np.clip((rgb / 255.0) ** 0.9, 0, 1.0)
+        g = (g * 255).astype(np.uint8)
+        dets_accum += predict_once(g)
+    except Exception:
+        pass
 
-            merged: list[tuple[int,float,QRectF]] = []
-            for c, p, r in sorted(dets, key=lambda x: x[1], reverse=True):
-                keep = True
-                for j, (cj, pj, rj) in enumerate(merged):
-                    if c == cj and iou(r, rj) > IOU_MERGE:
-                        merged[j] = (cj, max(pj, p), r.united(rj))
-                        keep = False
-                        break
-                if keep:
-                    merged.append((c, p, r))
-            return merged
+    # Fusion par IoU (même classe)
+    def iou(a: QRectF, b: QRectF) -> float:
+        inter = a.intersected(b)
+        if inter.isEmpty(): return 0.0
+        ia = inter.width()*inter.height()
+        ua = a.width()*a.height() + b.width()*b.height() - ia
+        return ia / max(ua, 1e-6)
 
-        all_dets: list[tuple[int, float, QRectF]] = []
+    merged = []
+    for c, p, r in sorted(dets_accum, key=lambda x: x[1], reverse=True):
+        keep = True
+        for j, (cj, pj, rj) in enumerate(merged):
+            if c == cj and iou(r, rj) > IOU_MERGE:
+                merged[j] = (cj, max(pj, p), r.united(rj))
+                keep = False
+                break
+        if keep:
+            merged.append((c, p, r))
 
-        # --- Pass 0: full image ---
-        all_dets += predict_once(rgb)
-
-        # --- Pass 1: gamma 0.9 (rattrape bords pâles) ---
-        try:
-            g = _np.clip((rgb / 255.0) ** 0.9, 0, 1.0)
-            g = (g * 255).astype(_np.uint8)
-            all_dets += predict_once(g)
-        except Exception:
-            pass
-
-        # --- Tiled inference (2×3 or 3×3 selon taille) ---
-        # Target tile ~1024 with overlap ~25%
-        tgt = 1024
-        nx = max(2, round(W / tgt))
-        ny = max(2, round(H / tgt))
-        ov = 0.25  # 25% overlap
-
-        step_x = int(W / nx * (1 - ov))
-        step_y = int(H / ny * (1 - ov))
-        step_x = max(1, step_x)
-        step_y = max(1, step_y)
-
-        tiles = []
-        y = 0
-        while y < H:
-            x = 0
-            yh = min(H, y + int(H / ny + ov * H / ny))
-            while x < W:
-                xw = min(W, x + int(W / nx + ov * W / nx))
-                tiles.append((x, y, xw, yh))
-                x += step_x
-            y += step_y
-
-        for (x1, y1, x2, y2) in tiles:
-            tile = rgb[y1:y2, x1:x2, :]
-            if tile.size == 0: 
+    # Filtre panels trop petits / bizarres
+    dets_final: List[Detection] = []
+    for c, p, r in merged:
+        if c == 0:
+            if r.width()*r.height() < 0.002 * (H * W):  # avant 0.25% → maintenant 0.2%
                 continue
-            dets_t = predict_once(tile)
-            # Reproject to page coords
-            for c, p, r in dets_t:
-                R = QRectF(r)
-                R.translate(x1, y1)
-                all_dets.append((c, p, R))
+            ar = r.width()/max(r.height(), 1)
+            if ar < 0.2 or ar > 5.0:  # tolérance plus large
+                continue
+        dets_final.append(Detection(c, r, p))
 
-        # --- Merge duplicates (IoU) and filter shapes ---
-        merged = merge_iou(all_dets)
+    # Fallback: si 0 panel mais bulles en haut de page
+    if not any(d.cls == 0 for d in dets_final):
+        bal_top = [d.rect for d in dets_final if d.cls == 1 and d.rect.center().y() <= H * 0.4]
+        if bal_top:
+            u = QRectF(bal_top[0])
+            for b in bal_top[1:]: u = u.united(b)
+            dets_final.insert(0, Detection(0, u, 0.50))
 
-        dets_final: List[Detection] = []
-        PAGE_AREA = float(H * W)
-        for c, p, r in merged:
-            if c == 0:
-                # keep small panels (down to 0.15% page) and allow wide/tall variations
-                if r.width()*r.height() < 0.0015 * PAGE_AREA:
-                    continue
-                ar = r.width() / max(r.height(), 1)
-                if ar < 0.18 or ar > 5.5:
-                    continue
-            dets_final.append(Detection(c, r, p))
+    self.dets = dets_final
+    self._draw_detections()
 
-        # --- Provisional panel if none but top balloons exist ---
-        if not any(d.cls == 0 for d in dets_final):
-            bal_top = [d.rect for d in dets_final if d.cls == 1 and d.rect.center().y() <= H * 0.4]
-            if bal_top:
-                u = QRectF(bal_top[0])
-                for b in bal_top[1:]: u = u.united(b)
-                dets_final.insert(0, Detection(0, u, 0.50))
-
-        self.dets = dets_final
-
-        if not self.dets:
-            # Dessine un cadre test 100x100 au coin haut-gauche pour vérifier l'overlay
-            if self.pixmap_item:
-                from PySide6.QtGui import QColor
-                test = QRectF(10, 10, 100, 100)
-                BBoxItem(test, QColor(255, 0, 0), parent=self.pixmap_item, label="debug")
-            self.status.showMessage(f"Page {self.page_index+1}: 0 detections — check model/thresholds")
-            return
-
-        # Draw
-        self._draw_detections()
-
-        # Debug status
-        n_pan = sum(1 for d in self.dets if d.cls == 0)
-        n_bal = sum(1 for d in self.dets if d.cls == 1)
-        self.status.showMessage(f"Page {self.page_index+1}: panels={n_pan}, balloons={n_bal} (imgsz={imgsz}, tiles={len(tiles)})")
+    # Debug
+    n_pan = sum(1 for d in self.dets if d.cls == 0)
+    n_bal = sum(1 for d in self.dets if d.cls == 1)
+    self.status.showMessage(f"Page {self.page_index+1}: panels={n_pan}, balloons={n_bal} (imgsz={imgsz})")
 
     # ---------- reading mode ----------
     def _prepare_reading_units(self):
@@ -430,6 +366,7 @@ class PdfYoloViewer(QMainWindow):
         self.read_units = sorted(self.read_units, key=lambda r: (r.top(), r.left()))
         self.read_index=-1
 
+    @staticmethod
     @staticmethod
     def _sort_reading_order(rects: List[QRectF], direction: str) -> List[QRectF]:
         if not rects: return []
