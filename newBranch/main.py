@@ -247,7 +247,7 @@ class PdfYoloViewer(QMainWindow):
 
         # --- thresholds & params ---
         PANEL_CONF = 0.08    # permissive for panels (↑ recall)
-        BAL_CONF   = 0.22    # balloons a bit stricter
+        BAL_CONF   = 0.18    # balloons even more permissive for better recall
         IOU_MERGE  = 0.55    # slightly lower to fuse tile duplicates
         MAX_DET    = 500
 
@@ -311,6 +311,25 @@ class PdfYoloViewer(QMainWindow):
         except Exception:
             pass
 
+        # --- Pass 2: CLAHE + unsharp mask (white balloons on dark/blue backgrounds) ---
+        try:
+            import cv2
+            # Convert to LAB and apply CLAHE to L channel
+            lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+            enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+            
+            # Apply unsharp mask
+            blurred = cv2.GaussianBlur(enhanced, (0, 0), 1.5)
+            enhanced = cv2.addWeighted(enhanced, 1.5, blurred, -0.5, 0)
+            enhanced = _np.clip(enhanced, 0, 255).astype(_np.uint8)
+            
+            all_dets += predict_once(enhanced)
+        except (ImportError, Exception):
+            # Skip silently if cv2 not available or any error
+            pass
+
         # --- Tiled inference (2×3 or 3×3 selon taille) ---
         # Target tile ~1024 with overlap ~25%
         tgt = 1024
@@ -348,6 +367,44 @@ class PdfYoloViewer(QMainWindow):
         # --- Merge duplicates (IoU) and filter shapes ---
         merged = merge_iou(all_dets)
 
+        # --- Second merge step: prevent split panels (containment-based) ---
+        def containment_ratio(a: QRectF, b: QRectF) -> float:
+            """Calculate how much of the smaller box is contained in the larger one"""
+            inter = a.intersected(b)
+            if inter.isEmpty(): return 0.0
+            smaller_area = min(a.width() * a.height(), b.width() * b.height())
+            inter_area = inter.width() * inter.height()
+            return inter_area / max(smaller_area, 1e-6)
+
+        # Apply containment merge only to panels
+        panels_to_merge = [(i, c, p, r) for i, (c, p, r) in enumerate(merged) if c == 0]
+        balloons_keep = [(c, p, r) for c, p, r in merged if c == 1]
+        
+        if len(panels_to_merge) > 1:
+            final_panels = []
+            used = set()
+            
+            for i, (idx_i, c_i, p_i, r_i) in enumerate(panels_to_merge):
+                if idx_i in used: continue
+                
+                merged_panel = r_i
+                merged_conf = p_i
+                used.add(idx_i)
+                
+                # Check for strong containment with other panels
+                for j, (idx_j, c_j, p_j, r_j) in enumerate(panels_to_merge[i+1:], i+1):
+                    if idx_j in used: continue
+                    
+                    if containment_ratio(r_i, r_j) > 0.6 or containment_ratio(r_j, r_i) > 0.6:
+                        merged_panel = merged_panel.united(r_j)
+                        merged_conf = max(merged_conf, p_j)
+                        used.add(idx_j)
+                
+                final_panels.append((0, merged_conf, merged_panel))
+            
+            # Combine final panels with balloons
+            merged = final_panels + balloons_keep
+        
         dets_final: List[Detection] = []
         PAGE_AREA = float(H * W)
         for c, p, r in merged:
