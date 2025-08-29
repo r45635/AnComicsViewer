@@ -534,8 +534,8 @@ class PdfYoloViewer(QMainWindow):
         for i, b in enumerate(balloons):
             if i not in assigned: self.read_units.append(QRectF(b))
 
-        # ordre L→R, T→B
-        self.read_units = sorted(self.read_units, key=lambda r: (r.top(), r.left()))
+        # Tri intelligent par rangées
+        self.read_units = self._sort_reading_order(self.read_units, self.cfg.direction)
         self.read_index=-1
 
     @staticmethod
@@ -639,6 +639,8 @@ class PdfYoloViewer(QMainWindow):
 
     def _toggle_direction(self, checked: bool):
         self.cfg.direction = "LR_TB" if checked else "TB_LR"
+        self._prepare_reading_units() # Re-sort reading units
+        self.reset_view()
 
     # ---------- session ----------
     def _cfg_path(self) -> str:
