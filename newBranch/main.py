@@ -129,6 +129,9 @@ class PdfYoloViewer(QMainWindow):
         a_next = QAction("Next ▶", self); a_next.triggered.connect(self.next_step); tb.addAction(a_next)
         tb.addSeparator()
         a_reset = QAction("Reset", self); a_reset.triggered.connect(self.reset_view); tb.addAction(a_reset)
+        a_zoom_in = QAction("🔍+", self); a_zoom_in.triggered.connect(self.zoom_in); a_zoom_in.setShortcut("Ctrl++"); tb.addAction(a_zoom_in)
+        a_zoom_out = QAction("🔍-", self); a_zoom_out.triggered.connect(self.zoom_out); a_zoom_out.setShortcut("Ctrl+-"); tb.addAction(a_zoom_out)
+        a_fit_window = QAction("Fit Window", self); a_fit_window.triggered.connect(self.fit_to_window); a_fit_window.setShortcut("Ctrl+0"); tb.addAction(a_fit_window)
         tb.addSeparator()
         a_pan = QAction("Panels", self); a_pan.setCheckable(True); a_pan.setChecked(True); a_pan.toggled.connect(self._toggle_panels); tb.addAction(a_pan)
         a_bal = QAction("Balloons", self); a_bal.setCheckable(True); a_bal.setChecked(True); a_bal.toggled.connect(self._toggle_balloons); tb.addAction(a_bal)
@@ -247,7 +250,7 @@ class PdfYoloViewer(QMainWindow):
 
         # --- thresholds & params ---
         PANEL_CONF = 0.08    # permissive for panels (↑ recall)
-        BAL_CONF   = 0.18    # balloons even more permissive for better recall
+        BAL_CONF   = 0.22    # balloons stricter to reduce noise
         IOU_MERGE  = 0.55    # slightly lower to fuse tile duplicates
         MAX_DET    = 500
 
@@ -407,15 +410,63 @@ class PdfYoloViewer(QMainWindow):
         
         dets_final: List[Detection] = []
         PAGE_AREA = float(H * W)
-        for c, p, r in merged:
-            if c == 0:
-                # keep small panels (down to 0.15% page) and allow wide/tall variations
-                if r.width()*r.height() < 0.0015 * PAGE_AREA:
-                    continue
-                ar = r.width() / max(r.height(), 1)
-                if ar < 0.18 or ar > 5.5:
-                    continue
+        
+        # Separate panels and balloons for different processing
+        panels = [(c, p, r) for c, p, r in merged if c == 0]
+        balloons = [(c, p, r) for c, p, r in merged if c == 1]
+        
+        # Process panels (existing logic)
+        for c, p, r in panels:
+            # keep small panels (down to 0.15% page) and allow wide/tall variations
+            if r.width()*r.height() < 0.0015 * PAGE_AREA:
+                continue
+            ar = r.width() / max(r.height(), 1)
+            if ar < 0.18 or ar > 5.5:
+                continue
             dets_final.append(Detection(c, r, p))
+        
+        # Process balloons with additional filtering
+        if balloons:
+            # Filter by size: remove tiny balloons
+            filtered_balloons = []
+            for c, p, r in balloons:
+                # Size filters: area and minimum dimensions
+                if r.width()*r.height() < 0.0005 * PAGE_AREA:  # < 0.05% of page
+                    continue
+                if r.width() < 25 or r.height() < 20:  # minimum pixel dimensions
+                    continue
+                filtered_balloons.append((c, p, r))
+            
+            # Merge balloons with higher IoU threshold
+            def merge_balloons_iou(dets: list[tuple[int, float, QRectF]]) -> list[tuple[int, float, QRectF]]:
+                def iou(a: QRectF, b: QRectF) -> float:
+                    inter = a.intersected(b)
+                    if inter.isEmpty(): return 0.0
+                    ia = inter.width()*inter.height()
+                    ua = a.width()*a.height() + b.width()*b.height() - ia
+                    return ia / max(ua, 1e-6)
+
+                merged_bal: list[tuple[int,float,QRectF]] = []
+                for c, p, r in sorted(dets, key=lambda x: x[1], reverse=True):
+                    keep = True
+                    for j, (cj, pj, rj) in enumerate(merged_bal):
+                        if iou(r, rj) > 0.5:  # Higher IoU for balloons
+                            merged_bal[j] = (cj, max(pj, p), r.united(rj))
+                            keep = False
+                            break
+                    if keep:
+                        merged_bal.append((c, p, r))
+                return merged_bal
+            
+            merged_balloons = merge_balloons_iou(filtered_balloons)
+            
+            # Keep only top 20 balloons by confidence
+            merged_balloons.sort(key=lambda x: x[1], reverse=True)
+            top_balloons = merged_balloons[:20]
+            
+            # Add filtered balloons to final detections
+            for c, p, r in top_balloons:
+                dets_final.append(Detection(c, r, p))
 
         # --- Provisional panel if none but top balloons exist ---
         if not any(d.cls == 0 for d in dets_final):
@@ -538,18 +589,34 @@ class PdfYoloViewer(QMainWindow):
         rr=QRectF(r); rr.adjust(-r.width()*pad,-r.height()*pad,r.width()*pad,r.height()*pad)
         rr = rr.intersected(self.pixmap_item.boundingRect())
         rect_scene = self.pixmap_item.mapRectToScene(rr)
-        self.view.fitInView(rect_scene, Qt.KeepAspectRatio)
+        self.view.fitInView(rect_scene, Qt.AspectRatioMode.KeepAspectRatio)
         self.view.centerOn(rect_scene.center())
 
     def fit_full_page(self):
         if not self.pixmap_item: return
-        self.view.fitInView(self.pixmap_item.sceneBoundingRect(), Qt.KeepAspectRatio)
+        self.view.fitInView(self.pixmap_item.sceneBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
         self.view.centerOn(self.pixmap_item)
 
     # ---------- zoom/reset ----------
     def reset_view(self):
         self.view.resetTransform()
         self.view.centerOn(self.pixmap_item)
+
+    def zoom_in(self):
+        """Zoom avant de 25%"""
+        if self.pixmap_item:
+            self.view.scale(1.25, 1.25)
+
+    def zoom_out(self):
+        """Zoom arrière de 20%"""
+        if self.pixmap_item:
+            self.view.scale(0.8, 0.8)
+
+    def fit_to_window(self):
+        """Ajuste l'image pour qu'elle tienne dans la fenêtre"""
+        if self.pixmap_item:
+            self.view.fitInView(self.pixmap_item.sceneBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.view.centerOn(self.pixmap_item)
 
     # ---------- toggles ----------
     def _toggle_panels(self, checked: bool):
