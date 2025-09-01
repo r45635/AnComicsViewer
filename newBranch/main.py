@@ -250,7 +250,7 @@ class PdfYoloViewer(QMainWindow):
 
         # --- thresholds & params ---
         PANEL_CONF = 0.08    # permissive for panels (↑ recall)
-        BAL_CONF   = 0.22    # balloons stricter to reduce noise
+        BAL_CONF   = 0.22    # increased to reduce noise
         IOU_MERGE  = 0.55    # slightly lower to fuse tile duplicates
         MAX_DET    = 500
 
