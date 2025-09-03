@@ -1,51 +1,35 @@
-# --- Seuils de confiance ---
-panel_conf: 0.18              # seuil minimum pour accepter un panel
-balloon_conf: 0.22            # seuil minimum pour accepter un ballon
+# --- Panels ---
+panel_conf: 0.18
+panel_area_min_pct: 0.012        # 1.2% de la page
+panel_merge_iou: 0.40
+panel_merge_dist: 0.02           # distance relative pour fusion centres
+panel_merge_cont: 0.70           # containment hiérarchique
+enable_panel_merge: true
 
-# --- Fusion intelligente des panels ---
-panel_merge_iou: 0.4            # seuil IoU pour fusionner deux panels (plus strict)
-panel_merge_dist: 0.015         # distance relative max pour fusion (plus strict)
-enable_panel_merge: true        # activer/désactiver la fusion intelligente
+# --- Balloons ---
+balloon_conf: 0.22
+balloon_area_min_pct: 0.0006
+balloon_min_w: 30
+balloon_min_h: 22
+max_balloons: 12
 
-# --- band merge (rangées) ---
-panel_row_overlap: 0.65   # overlap vertical min pour être dans la même rangée (plus strict)
-panel_row_gap_pct: 0.02   # écart horizontal max (en % largeur page) pour fusionner (plus strict)
-enable_row_merge: true    # activer/désactiver la fusion par rangées
+# --- Row/band merge (affine les splits d'une même rangée) ---
+panel_row_overlap: 0.55
+panel_row_gap_pct: 0.03
+enable_row_merge: true
 
-# --- Contraintes dimensionnelles ---
-balloon_area_min_pct: 0.0006  # surface minimale d'un ballon (% de la page)
-balloon_min_w: 30             # largeur min absolue d'un ballon (px)
-balloon_min_h: 22             # hauteur min absolue d'un ballon (px)
+# --- Inference ---
+imgsz_max: 1280
+tile_target: 896
+tile_overlap: 0.20
+force_tiling: false
+max_det: 400
 
-# --- Tiling ---
-imgsz_max: 1280               # taille max d'entrée réseau (réduit pour performance)
-tile_target: 896              # taille cible d'une tuile (réduit pour performance)
-tile_overlap: 0.20            # recouvrement entre tuiles (réduit pour performance)
-force_tiling: false           # true = toujours tuiler, false = auto
-debug_tiles: false            # true = affichage debug des tuiles
+# --- Full-page cover heuristic ---
+full_page_panel_pct: 0.80
+full_page_keep_balloons: true
+full_page_balloon_overlap_pct: 0.10
 
-# --- Post-processing ---
-iou_merge: 0.55                # fusion de boîtes (IoU)
-panel_containment_merge: 0.65  # fusion si un panel contient largement un autre
-max_balloons: 12               # nombre max de ballons retenus (réduit)
-page_margin_inset_pct: 0.015   # marge de la page ignorée
-max_det: 400                   # max prédictions YOLO par passe (réduit pour performance)
-
-# --- Tiled-grid artifact suppression (anti-grille) ---
-enable_antigrille: true        # activer/désactiver la suppression des artefacts de grille
-antigrille_min_count: 8        # nb min de panels pour déclencher la détection d'artefact
-antigrille_tile_match: 0.35    # tolérance pour matcher la taille des tuiles (±35%)
-antigrille_grid_fill: 0.5      # fraction min de la grille qui doit être remplie
-
-# --- Heuristique "pleine page / couverture" ---
-full_page_panel_pct: 0.80       # si un panel couvre >=80% de la page => full page
-full_page_keep_balloons: true   # conserver les ballons chevauchant la page
-full_page_balloon_overlap_pct: 0.15  # seuil de recouvrement ballon/page
-
-# --- Fusion intelligente des panels ---
-panel_merge_iou: 0.3            # seuil IoU pour fusionner deux panels
-panel_merge_dist: 0.02          # distance relative max pour fusion (2% largeur/hauteur)
-
-# --- band merge (rangées) ---
-panel_row_overlap: 0.55   # overlap vertical min pour être dans la même rangée
-panel_row_gap_pct: 0.03   # écart horizontal max (en % de la largeur page) pour fusionner
+# --- Options avancées ---
+enable_antigrille: true
+debug_tiles: false
