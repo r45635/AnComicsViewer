@@ -1,0 +1,11 @@
+{
+  "test_id": "test_03_Original_Balanced",
+  "model": "anComicsViewer_v01.pt",
+  "config": "detect.yaml",
+  "page": 5,
+  "panels_raw": 15,
+  "panels_merged": 15,
+  "balloons_raw": 27,
+  "balloons_merged": 27,
+  "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_03_Original_Balanced"
+}

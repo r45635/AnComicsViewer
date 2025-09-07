@@ -1,0 +1,53 @@
+# Configuration optimisée pour la page 5 de Tintin - Version améliorée
+# Corrections basées sur l'analyse détaillée des problèmes de détection
+
+# Configuration optimisée pour SISTERS - Focus ballons
+# Optimisation basée sur l'analyse : 0% rappel ballons à améliorer
+
+# Configuration ultra-agressive pour SISTERS - Test ultime
+# Objectif : capturer TOUS les éléments possibles pour analyse
+
+# Configuration optimisée pour SISTERS - Amélioration précision ballons
+# Objectif : réduire faux positifs tout en gardant détection des vrais ballons
+
+# === PARAMÈTRES AJUSTÉS POUR SISTERS (GRANDS BALLOONS) ===
+panel_conf: 0.10                      # Garder pour panels
+panel_area_min_pct: 0.005             # Garder pour panels
+balloon_conf: 0.03                    # AJUSTÉ de 0.04 → 0.03 pour plus de détections
+balloon_area_min_pct: 0.005           # RÉDUIT de 0.01 → 0.005 pour Sisters (211K px²)
+balloon_min_w: 150                    # RÉDUIT de 200 → 150 pour Sisters (555px moyen)
+balloon_min_h: 80                     # RÉDUIT de 100 → 80 pour Sisters (374px moyen)
+
+# === LIMITES AJUSTÉES ===
+max_panels: 30                        # Garder
+max_balloons: 50                      # AUGMENTÉ de 60 → 50 pour limiter faux positifs
+max_det: 1200                         # AUGMENTÉ de 1000 → 1200
+
+# === FUSION ÉQUILIBRÉE ===
+panel_merge_iou: 0.12                 # AJUSTÉ de 0.15 → 0.12
+panel_merge_dist: 0.025               # AJUSTÉ de 0.03 → 0.025
+panel_containment_merge: 0.55         # AJUSTÉ de 0.60 → 0.55
+enable_panel_merge: true              # Garder
+panel_row_overlap: 0.20               # AJUSTÉ de 0.25 → 0.20
+panel_row_gap_pct: 0.03               # AJUSTÉ de 0.05 → 0.03
+enable_row_merge: true                # Garder
+iou_merge: 0.12                       # AJUSTÉ de 0.15 → 0.12
+
+# === DÉTECTION PAGE COMPLÈTE ===
+full_page_panel_pct: 0.85             # Réduit
+full_page_keep_balloons: true         # Garder
+full_page_balloon_overlap_pct: 0.08   # Réduit
+
+# === RÉSOLUTION OPTIMISÉE ===
+imgsz_max: 1536                      # Garder
+tile_target: 1024                    # Garder
+tile_overlap: 0.20                   # Garder
+force_tiling: false                  # Garder
+page_margin_inset_pct: 0.02          # Garder
+
+# === GUTTER SPLITTING ===
+gutter_split_enable: true            # Garder
+gutter_min_gap_px: 4                 # Réduit
+gutter_min_contrast: 15              # Réduit
+gutter_min_coverage: 0.65            # Réduit
+gutter_dir: "both"                   # Garder

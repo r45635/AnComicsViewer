@@ -1,0 +1,84 @@
+New https://pypi.org/project/ultralytics/8.3.194 available 😃 Update with 'pip install -U ultralytics'
+Ultralytics 8.3.192 🚀 Python-3.13.5 torch-2.8.0 MPS (Apple M2 Max)
+[34m[1mengine/trainer: [0magnostic_nms=False, amp=True, augment=False, auto_augment=randaugment, batch=6, bgr=0.0, box=6.0, cache=False, cfg=None, classes=None, close_mosaic=10, cls=0.4, conf=None, copy_paste=0.05, copy_paste_mode=flip, cos_lr=False, cutmix=0.0, data=/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/multibd_enhanced.yaml, degrees=0.0, deterministic=True, device=mps, dfl=1.2, dnn=False, dropout=0.0, dynamic=False, embed=None, epochs=120, erasing=0.4, exist_ok=False, fliplr=0.5, flipud=0.0, format=torchscript, fraction=1.0, freeze=None, half=False, hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, imgsz=1280, int8=False, iou=0.7, keras=False, kobj=1.0, line_width=None, lr0=0.0008, lrf=0.01, mask_ratio=4, max_det=300, mixup=0.05, mode=train, model=yolov8m.pt, momentum=0.9, mosaic=1.0, multi_scale=False, name=ancomics_final_optimized8, nbs=64, nms=False, opset=None, optimize=False, optimizer=AdamW, overlap_mask=True, patience=25, perspective=0.0, plots=True, pose=12.0, pretrained=True, profile=False, project=None, rect=False, resume=False, retina_masks=False, save=True, save_conf=False, save_crop=False, save_dir=runs/detect/ancomics_final_optimized8, save_frames=False, save_json=False, save_period=20, save_txt=False, scale=0.5, seed=42, shear=0.0, show=False, show_boxes=True, show_conf=True, show_labels=True, simplify=True, single_cls=False, source=None, split=val, stream_buffer=False, task=detect, time=None, tracker=botsort.yaml, translate=0.1, val=True, verbose=True, vid_stride=1, visualize=False, warmup_bias_lr=0.08, warmup_epochs=2.0, warmup_momentum=0.8, weight_decay=0.0004, workers=0, workspace=None
+Overriding model.yaml nc=80 with nc=2
+
+                   from  n    params  module                                       arguments                     
+  0                  -1  1      1392  ultralytics.nn.modules.conv.Conv             [3, 48, 3, 2]                 
+  1                  -1  1     41664  ultralytics.nn.modules.conv.Conv             [48, 96, 3, 2]                
+  2                  -1  2    111360  ultralytics.nn.modules.block.C2f             [96, 96, 2, True]             
+  3                  -1  1    166272  ultralytics.nn.modules.conv.Conv             [96, 192, 3, 2]               
+  4                  -1  4    813312  ultralytics.nn.modules.block.C2f             [192, 192, 4, True]           
+  5                  -1  1    664320  ultralytics.nn.modules.conv.Conv             [192, 384, 3, 2]              
+  6                  -1  4   3248640  ultralytics.nn.modules.block.C2f             [384, 384, 4, True]           
+  7                  -1  1   1991808  ultralytics.nn.modules.conv.Conv             [384, 576, 3, 2]              
+  8                  -1  2   3985920  ultralytics.nn.modules.block.C2f             [576, 576, 2, True]           
+  9                  -1  1    831168  ultralytics.nn.modules.block.SPPF            [576, 576, 5]                 
+ 10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 12                  -1  2   1993728  ultralytics.nn.modules.block.C2f             [960, 384, 2]                 
+ 13                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 14             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 15                  -1  2    517632  ultralytics.nn.modules.block.C2f             [576, 192, 2]                 
+ 16                  -1  1    332160  ultralytics.nn.modules.conv.Conv             [192, 192, 3, 2]              
+ 17            [-1, 12]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 18                  -1  2   1846272  ultralytics.nn.modules.block.C2f             [576, 384, 2]                 
+ 19                  -1  1   1327872  ultralytics.nn.modules.conv.Conv             [384, 384, 3, 2]              
+ 20             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 21                  -1  2   4207104  ultralytics.nn.modules.block.C2f             [960, 576, 2]                 
+ 22        [15, 18, 21]  1   3776854  ultralytics.nn.modules.head.Detect           [2, [192, 384, 576]]          
+Model summary: 169 layers, 25,857,478 parameters, 25,857,462 gradients, 79.1 GFLOPs
+
+Transferred 469/475 items from pretrained weights
+Freezing layer 'model.22.dfl.conv.weight'
+[34m[1mtrain: [0mFast image access ✅ (ping: 0.0±0.0 ms, read: 2555.3±332.3 MB/s, size: 6632.0 KB)
+[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 1 images, 0 backgrounds, 0 corrupt: 1% ──────────── 1/116 2.6it/s 0.1s<45.1s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 9 images, 0 backgrounds, 0 corrupt: 8% ╸─────────── 9/116 19.3it/s 0.3s<5.5s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 17 images, 0 backgrounds, 0 corrupt: 15% ━╸────────── 17/116 29.5it/s 0.4s<3.4s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 38 images, 0 backgrounds, 0 corrupt: 33% ━━━╸──────── 38/116 76.5it/s 0.5s<1.0s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 47 images, 0 backgrounds, 0 corrupt: 41% ━━━━╸─────── 47/116 71.1it/s 0.7s<1.0s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 55 images, 0 backgrounds, 0 corrupt: 47% ━━━━━╸────── 55/116 63.5it/s 0.8s<1.0s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 63 images, 0 backgrounds, 0 corrupt: 54% ━━━━━━╸───── 63/116 57.0it/s 1.0s<0.9s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 71 images, 0 backgrounds, 0 corrupt: 61% ━━━━━━━───── 71/116 57.8it/s 1.2s<0.8s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 79 images, 0 backgrounds, 0 corrupt: 68% ━━━━━━━━──── 79/116 57.3it/s 1.3s<0.6s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 85 images, 0 backgrounds, 0 corrupt: 73% ━━━━━━━━╸─── 85/116 57.3it/s 1.4s<0.5s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 89 images, 0 backgrounds, 0 corrupt: 77% ━━━━━━━━━─── 89/116 51.1it/s 1.5s<0.5s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 95 images, 0 backgrounds, 0 corrupt: 82% ━━━━━━━━━╸── 95/116 51.0it/s 1.6s<0.4s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 105 images, 0 backgrounds, 0 corrupt: 91% ━━━━━━━━━━╸─ 105/116 54.1it/s 1.8s<0.2s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 116 images, 0 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 116/116 61.3it/s 1.9s[K[34m[1mtrain: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train... 116 images, 0 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 116/116 61.3it/s 1.9s
+[34m[1mtrain: [0mNew cache created: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/train.cache
+[34m[1mval: [0mFast image access ✅ (ping: 0.0±0.0 ms, read: 3781.8±1951.8 MB/s, size: 5343.2 KB)
+[K[34m[1mval: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/val... 1 images, 0 backgrounds, 0 corrupt: 4% ──────────── 1/28 1.9it/s 0.2s<14.5s[K[34m[1mval: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/val... 15 images, 0 backgrounds, 0 corrupt: 54% ━━━━━━────── 15/28 31.2it/s 0.3s<0.4s[K[34m[1mval: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/val... 23 images, 0 backgrounds, 0 corrupt: 82% ━━━━━━━━━╸── 23/28 43.5it/s 0.4s<0.1s[K[34m[1mval: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/val... 28 images, 0 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 28/28 67.0it/s 0.4s[K[34m[1mval: [0mScanning /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/val... 28 images, 0 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 28/28 67.0it/s 0.4s
+[34m[1mval: [0mNew cache created: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/labels/val.cache
+Plotting labels to runs/detect/ancomics_final_optimized8/labels.jpg... 
+[34m[1moptimizer:[0m AdamW(lr=0.0008, momentum=0.9) with parameter groups 77 weight(decay=0.0), 84 weight(decay=0.00041250000000000005), 83 bias(decay=0.0)
+Image sizes 1280 train, 1280 val
+Using 0 dataloader workers
+Logging results to [1mruns/detect/ancomics_final_optimized8[0m
+Starting training for 120 epochs...
+
+      Epoch    GPU_mem   box_loss   cls_loss   dfl_loss  Instances       Size
+[K      1/120      17.8G      1.042      2.509      1.271        105       1280: 0% ──────────── 0/20  7.7s<[K      1/120      20.9G     0.9051      2.339      1.194         83       1280: 5% ╸─────────── 1/20 0.08it/s 11.3s<3:52[K      1/120        21G     0.8052      2.097       1.12        139       1280: 10% ━─────────── 2/20 0.13it/s 15.2s<2:14[K      1/120      20.9G     0.7676      1.921      1.112         99       1280: 15% ━╸────────── 3/20 0.19it/s 18.3s<1:29[K      1/120      20.9G      0.721      1.736      1.068        188       1280: 20% ━━────────── 4/20 0.21it/s 22.5s<1:18[K      1/120        21G     0.7187      1.647      1.067        184       1280: 25% ━━━───────── 5/20 0.18it/s 29.9s<1:21[K      1/120        21G     0.7082      1.596      1.048        115       1280: 30% ━━━╸──────── 6/20 0.22it/s 33.1s<1:03[K      1/120      20.9G     0.7093      1.534      1.049        146       1280: 35% ━━━━──────── 7/20 0.23it/s 37.1s<56.7s[K      1/120      20.9G     0.7107      1.516      1.051         94       1280: 40% ━━━━╸─────── 8/20 0.21it/s 43.1s<57.0s[K      1/120        21G     0.7008      1.469      1.043        149       1280: 45% ━━━━━─────── 9/20 0.23it/s 46.7s<47.5s[K      1/120      20.9G     0.6793      1.419      1.026        144       1280: 50% ━━━━━━────── 10/20 0.25it/s 50.1s<40.1s[K      1/120      21.1G      0.669      1.383      1.012        160       1280: 55% ━━━━━━╸───── 11/20 0.25it/s 54.0s<35.6s[K      1/120      21.9G      0.665      1.346      1.002        176       1280: 60% ━━━━━━━───── 12/20 0.26it/s 57.6s<30.7s[K      1/120      21.9G     0.6594      1.318     0.9937        161       1280: 65% ━━━━━━━╸──── 13/20 0.25it/s 1:02<27.9s[K      1/120      21.9G     0.6517      1.283      0.989        138       1280: 70% ━━━━━━━━──── 14/20 0.22it/s 1:09<27.7s[K      1/120      22.1G     0.6594       1.26     0.9933        154       1280: 75% ━━━━━━━━━─── 15/20 0.23it/s 1:13<21.4s[K      1/120        22G     0.6471      1.229     0.9849        161       1280: 80% ━━━━━━━━━╸── 16/20 0.25it/s 1:16<15.9s[K      1/120        22G     0.6365      1.207     0.9786        104       1280: 85% ━━━━━━━━━━── 17/20 0.27it/s 1:20<11.3s[K      1/120        22G     0.6287      1.184     0.9706        132       1280: 90% ━━━━━━━━━━╸─ 18/20 0.26it/s 1:24<7.8s[K      1/120      21.4G     0.6152      1.153     0.9651         31       1280: 95% ━━━━━━━━━━━─ 19/20 0.26it/s 1:28<3.8s[K      1/120      21.4G     0.6152      1.153     0.9651         31       1280: 100% ━━━━━━━━━━━━ 20/20 0.23it/s 1:28[K      1/120      21.4G     0.6152      1.153     0.9651         31       1280: 100% ━━━━━━━━━━━━ 20/20 0.23it/s 1:28
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 33% ━━━━──────── 1/3 0.09it/s 3.5s<23.3s[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 67% ━━━━━━━━──── 2/3 0.13it/s 7.6s<7.5s[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 3/3 0.31it/s 9.7s[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 3/3 0.31it/s 9.7s
+/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/utils/metrics.py:854: RuntimeWarning: invalid value encountered in cast
+  return tp, fp, p, r, f1, ap, unique_classes.astype(int), p_curve, r_curve, f1_curve, x, prec_values
+/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/utils/metrics.py:1115: RuntimeWarning: invalid value encountered in cast
+  self.nt_per_class = np.bincount(stats["target_cls"].astype(int), minlength=len(self.names))
+Traceback (most recent call last):
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/bin/yolo", line 7, in <module>
+    sys.exit(entrypoint())
+             ~~~~~~~~~~^^
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/cfg/__init__.py", line 988, in entrypoint
+    getattr(model, mode)(**overrides)  # default args from model
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/engine/model.py", line 801, in train
+    self.trainer.train()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/engine/trainer.py", line 230, in train
+    self._do_train(world_size)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/engine/trainer.py", line 461, in _do_train
+    self.metrics, self.fitness = self.validate()
+                                 ~~~~~~~~~~~~~^^
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/engine/trainer.py", line 676, in validate
+    metrics = self.validator(self)
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/engine/validator.py", line 227, in __call__
+    stats = self.get_stats()
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/models/yolo/detect/val.py", line 237, in get_stats
+    self.metrics.process(save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/.venv/lib/python3.13/site-packages/ultralytics/utils/metrics.py", line 1115, in process
+    self.nt_per_class = np.bincount(stats["target_cls"].astype(int), minlength=len(self.names))
+                        ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: 'list' argument must have no negative elements
+TRAINING_EXIT_CODE: 1
+TRAINING_END_TIME: Sat Sep  6 08:59:32 MST 2025

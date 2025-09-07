@@ -1,0 +1,28 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          198.19273612941066,
+          202.18005568928504
+        ],
+        [
+          1492.9741924673183,
+          1950.7758896344844
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/pinup_p0001.png",
+  "imageData": null,
+  "imageHeight": 2200,
+  "imageWidth": 1700
+}

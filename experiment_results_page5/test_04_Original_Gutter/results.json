@@ -1,0 +1,11 @@
+{
+  "test_id": "test_04_Original_Gutter",
+  "model": "anComicsViewer_v01.pt",
+  "config": "detect_grid_gutters.yaml",
+  "page": 5,
+  "panels_raw": 15,
+  "panels_merged": 15,
+  "balloons_raw": 20,
+  "balloons_merged": 20,
+  "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_04_Original_Gutter"
+}

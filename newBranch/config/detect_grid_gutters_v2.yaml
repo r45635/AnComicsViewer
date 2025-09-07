@@ -1,0 +1,38 @@
+# Panels/Balloons thresholds
+panel_conf: 0.14
+panel_area_min_pct: 0.0010
+balloon_conf: 0.06
+balloon_area_min_pct: 0.00012
+max_panels: 24
+max_balloons: 40
+
+# Merge tuning (more conservative)
+enable_panel_merge: true
+panel_merge_iou: 0.33
+panel_merge_dist: 0.025
+panel_containment_merge: 0.90
+
+# Row merge: make it hard to merge across rows
+enable_row_merge: true
+panel_row_overlap: 0.22
+panel_row_gap_pct: 0.020
+iou_merge: 0.32
+
+# Full-page guard
+full_page_panel_pct: 0.988
+full_page_keep_balloons: true
+full_page_balloon_overlap_pct: 0.10
+
+# Tiling & geometry
+imgsz_max: 4096
+tile_target: 1280
+tile_overlap: 0.20
+force_tiling: false
+page_margin_inset_pct: 0.012
+
+# Gutter-based split ON to prevent row gluing
+gutter_split_enable: true
+gutter_min_gap_px: 10
+gutter_min_contrast: 16
+gutter_min_coverage: 0.60
+gutter_dir: "both"

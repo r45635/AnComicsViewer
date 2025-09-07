@@ -1,0 +1,77 @@
+{
+  "experiment": "Tintin Page 5 Model+Config Comparison",
+  "pdf": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf",
+  "page": 5,
+  "ground_truth": {
+    "panels": 6,
+    "balloons": 13
+  },
+  "results": [
+    {
+      "test_id": "test_01_Enhanced_Balanced",
+      "model": "multibd_enhanced_v2.pt",
+      "config": "detect.yaml",
+      "page": 5,
+      "panels_raw": 0,
+      "panels_merged": 0,
+      "balloons_raw": 0,
+      "balloons_merged": 0,
+      "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_01_Enhanced_Balanced"
+    },
+    {
+      "test_id": "test_02_Enhanced_NoMerge",
+      "model": "multibd_enhanced_v2.pt",
+      "config": "detect_no_merge.yaml",
+      "page": 5,
+      "panels_raw": 0,
+      "panels_merged": 0,
+      "balloons_raw": 0,
+      "balloons_merged": 0,
+      "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_02_Enhanced_NoMerge"
+    },
+    {
+      "test_id": "test_03_Original_Balanced",
+      "model": "anComicsViewer_v01.pt",
+      "config": "detect.yaml",
+      "page": 5,
+      "panels_raw": 15,
+      "panels_merged": 15,
+      "balloons_raw": 27,
+      "balloons_merged": 27,
+      "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_03_Original_Balanced"
+    },
+    {
+      "test_id": "test_04_Original_Gutter",
+      "model": "anComicsViewer_v01.pt",
+      "config": "detect_grid_gutters.yaml",
+      "page": 5,
+      "panels_raw": 15,
+      "panels_merged": 15,
+      "balloons_raw": 20,
+      "balloons_merged": 20,
+      "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_04_Original_Gutter"
+    },
+    {
+      "test_id": "test_05_Improved_Balanced",
+      "model": "ancomics_improved.pt",
+      "config": "detect.yaml",
+      "page": 5,
+      "panels_raw": 0,
+      "panels_merged": 0,
+      "balloons_raw": 0,
+      "balloons_merged": 0,
+      "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_05_Improved_Balanced"
+    },
+    {
+      "test_id": "test_06_YOLOv8s_Balanced",
+      "model": "yolov8s.pt",
+      "config": "detect.yaml",
+      "page": 5,
+      "panels_raw": 108,
+      "panels_merged": 108,
+      "balloons_raw": 12,
+      "balloons_merged": 12,
+      "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_06_YOLOv8s_Balanced"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "test_id": "test_02_Enhanced_NoMerge",
+  "model": "multibd_enhanced_v2.pt",
+  "config": "detect_no_merge.yaml",
+  "page": 5,
+  "panels_raw": 0,
+  "panels_merged": 0,
+  "balloons_raw": 0,
+  "balloons_merged": 0,
+  "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_02_Enhanced_NoMerge"
+}

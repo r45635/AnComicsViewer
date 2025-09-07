@@ -1,0 +1,13 @@
+# Dataset configuration for YOLO training
+path: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset_improved
+train: images
+val: images  # Pour l'instant, même dossier (à splitter plus tard)
+test: images
+
+# Classes
+names:
+  0: panel
+  1: balloon
+
+# Nombre de classes
+nc: 2

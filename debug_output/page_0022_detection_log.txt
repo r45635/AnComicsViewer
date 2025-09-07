@@ -1,0 +1,116 @@
+🧪 TEST DE DÉTECTION AVEC DEBUG
+==================================================
+📁 Répertoire de travail: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/newBranch
+🔧 Debug de détection ACTIVÉ
+
+🔧 PARAMÈTRES DE CONFIGURATION:
+   🎯 Panel conf: 0.001, Balloon conf: 0.01
+   📏 Panel area min: 0.1%, Balloon area min: 0.0100%
+   🔄 Merging: IoU=0.7, Dist=0.15, Containment=0.8
+   📊 Max: Panels=30, Balloons=20, Det=600
+   🖼️  Image: imgsz_max=4096, tile_target=1536
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+WARNING ⚠️ imgsz=[3636] must be multiple of max stride 32, updating to [3648]
+
+🔍 DEBUG [DÉTECTION BRUTE]:
+   📊 Panels: 795
+      📏 Area: avg=31202px² (0.4%), max=72856px², min=0px²
+      📈 Distribution: [0.8348964295938452, 0.826945258964121, 0.8169112226191183, 0.8166733472990317, 0.8034242976173932]% (top 5)
+   💬 Balloons: 6
+      📏 Area: avg=1129px²
+      🎯 Conf: avg=0.001
+
+🔍 DEBUG [APRÈS FILTRE INITIAL]:
+   📊 Panels: 768
+      📏 Area: avg=32266px² (0.4%), max=72856px², min=4996px²
+      📈 Distribution: [0.8348964295938452, 0.826945258964121, 0.8169112226191183, 0.8166733472990317, 0.8034242976173932]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [APRÈS MERGING]:
+   📊 Panels: 9
+      📏 Area: avg=1205908px² (13.8%), max=2417505px², min=68394px²
+      📈 Distribution: [27.703353026584693, 26.438364566795663, 24.408628049456414, 18.725959329940846, 12.533944135337416]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [APRÈS GUTTER SPLIT]:
+   📊 Panels: 9
+      📏 Area: avg=1205908px² (13.8%), max=2417505px², min=68394px²
+      📈 Distribution: [27.703353026584693, 26.438364566795663, 24.408628049456414, 18.725959329940846, 12.533944135337416]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [APRÈS PAGE COMPLÈTE]:
+   📊 Panels: 9
+      📏 Area: avg=1205908px² (13.8%), max=2417505px², min=68394px²
+      📈 Distribution: [27.703353026584693, 26.438364566795663, 24.408628049456414, 18.725959329940846, 12.533944135337416]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [RÉSULTAT FINAL]:
+   📊 Panels: 9
+      📏 Area: avg=1205908px² (13.8%), max=2417505px², min=68394px²
+      📈 Distribution: [27.703353026584693, 26.438364566795663, 24.408628049456414, 18.725959329940846, 12.533944135337416]% (top 5)
+   💬 Balloons: 0
+📖 Chargement du PDF: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf
+
+🔧 PARAMÈTRES DE CONFIGURATION:
+   🎯 Panel conf: 0.001, Balloon conf: 0.01
+   📏 Panel area min: 0.1%, Balloon area min: 0.0100%
+   🔄 Merging: IoU=0.7, Dist=0.15, Containment=0.8
+   📊 Max: Panels=30, Balloons=20, Det=600
+   🖼️  Image: imgsz_max=4096, tile_target=1536
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+WARNING ⚠️ imgsz=[3706] must be multiple of max stride 32, updating to [3712]
+
+🔍 DEBUG [DÉTECTION BRUTE]:
+   📊 Panels: 542
+      📏 Area: avg=17780px² (0.2%), max=66937px², min=0px²
+      📈 Distribution: [0.7525790911977889, 0.7248043604746829, 0.6761958214390607, 0.6722668851552359, 0.6213287230468839]% (top 5)
+   💬 Balloons: 5
+      📏 Area: avg=0px²
+      🎯 Conf: avg=0.001
+
+🔍 DEBUG [APRÈS FILTRE INITIAL]:
+   📊 Panels: 393
+      📏 Area: avg=24487px² (0.3%), max=66937px², min=5209px²
+      📈 Distribution: [0.7525790911977889, 0.7248043604746829, 0.6761958214390607, 0.6722668851552359, 0.6213287230468839]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [APRÈS MERGING]:
+   📊 Panels: 10
+      📏 Area: avg=870576px² (9.8%), max=2094037px², min=18678px²
+      📈 Distribution: [23.543314308458836, 21.926218716286076, 17.55869618892927, 11.957684365696409, 7.5265165723231675]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [APRÈS GUTTER SPLIT]:
+   📊 Panels: 10
+      📏 Area: avg=870576px² (9.8%), max=2094037px², min=18678px²
+      📈 Distribution: [23.543314308458836, 21.926218716286076, 17.55869618892927, 11.957684365696409, 7.5265165723231675]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [APRÈS PAGE COMPLÈTE]:
+   📊 Panels: 10
+      📏 Area: avg=870576px² (9.8%), max=2094037px², min=18678px²
+      📈 Distribution: [23.543314308458836, 21.926218716286076, 17.55869618892927, 11.957684365696409, 7.5265165723231675]% (top 5)
+   💬 Balloons: 0
+
+🔍 DEBUG [RÉSULTAT FINAL]:
+   📊 Panels: 10
+      📏 Area: avg=870576px² (9.8%), max=2094037px², min=18678px²
+      📈 Distribution: [23.543314308458836, 21.926218716286076, 17.55869618892927, 11.957684365696409, 7.5265165723231675]% (top 5)
+   💬 Balloons: 0
+
+✅ Test terminé - vérifiez les logs de debug ci-dessus
+📊 Page 23 analysée avec 10 détections finales

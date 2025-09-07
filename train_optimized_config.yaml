@@ -1,0 +1,51 @@
+# Optimized YOLO Training Configuration for AnComicsViewer
+# Based on dataset analysis and manual annotation review
+
+# Model Configuration
+model: yolov8m.pt  # Medium model for better capacity than v8s
+data: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/multibd_enhanced.yaml
+
+# Training Parameters
+epochs: 120  # Reduced from 150 for stability with small dataset
+imgsz: 1280  # Keep high resolution for detail
+batch: 6  # Smaller batch for stability (was 8)
+workers: 2  # Reduced for stability
+device: mps
+
+# Optimizer Settings
+optimizer: AdamW  # Better for stability than SGD
+lr0: 0.0008  # Slightly lower learning rate for stability
+lrf: 0.01  # Final learning rate factor
+momentum: 0.9  # Standard momentum
+weight_decay: 0.0004  # L2 regularization
+
+# Loss Weights (Balanced for panels/balloons)
+box: 6.0  # Reduced from 7.5 for better balance
+cls: 0.4  # Reduced from 0.5 to balance classes
+dfl: 1.2  # Reduced from 1.5 for stability
+
+# Data Augmentation (Light to prevent overfitting)
+mixup: 0.05  # Reduced from 0.1
+copy_paste: 0.05  # Reduced from 0.1
+close_mosaic: 10  # Reduced from 15
+
+# Training Control
+patience: 25  # Early stopping patience
+save: true
+save_period: 20  # Save checkpoints every 20 epochs
+cache: true
+deterministic: true
+seed: 42
+
+# Warmup Settings
+warmup_epochs: 2.0  # Shorter warmup
+warmup_momentum: 0.8
+warmup_bias_lr: 0.08
+
+# Performance
+amp: true  # Automatic mixed precision
+verbose: true
+plots: true
+
+# Output
+name: ancomics_final_optimized

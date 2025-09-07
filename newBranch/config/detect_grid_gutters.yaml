@@ -1,0 +1,33 @@
+# === Strict panels preset with gutter splitting (clean grid pages) ===
+panel_conf: 0.20
+panel_area_min_pct: 0.001
+balloon_conf: 0.15
+balloon_area_min_pct: 0.0002
+max_panels: 20
+max_balloons: 30
+
+enable_panel_merge: true
+panel_merge_iou: 0.38
+panel_merge_dist: 0.04
+panel_containment_merge: 0.90
+enable_row_merge: true
+panel_row_overlap: 0.45
+panel_row_gap_pct: 0.035
+iou_merge: 0.35
+
+full_page_panel_pct: 0.985
+full_page_keep_balloons: true
+full_page_balloon_overlap_pct: 0.10
+
+imgsz_max: 4096
+tile_target: 1280
+tile_overlap: 0.20
+force_tiling: false
+page_margin_inset_pct: 0.015
+
+# Gutter-based splitting enabled for grid layouts
+gutter_split_enable: true
+gutter_min_gap_px: 10
+gutter_min_contrast: 16
+gutter_min_coverage: 0.60
+gutter_dir: "both"

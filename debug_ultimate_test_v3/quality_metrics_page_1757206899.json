@@ -1,0 +1,16 @@
+{
+  "total_panels": 4,
+  "total_balloons": 1,
+  "panel_areas": [
+    0.027082379862700227,
+    0.027048054919908467,
+    0.021590389016018306,
+    0.03649329499379909
+  ],
+  "balloon_areas": [
+    0.0034854887715971518
+  ],
+  "overlaps_detected": 0,
+  "severe_overlaps": 0,
+  "quality_score": 1.0
+}

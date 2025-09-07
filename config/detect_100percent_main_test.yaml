@@ -1,0 +1,79 @@
+# Configuration CORRIGÉE - Seuils stricts pour correspondre au mode règles
+# Objectif : 7 panels comme le mode règles (au lieu de 17)
+
+description: "Configuration corrigée - seuils stricts pour 7 panels"
+version: "6.0-corrected-7panels"
+
+# === PARAMÈTRES CORRIGÉS POUR CORRESPONDRE AU MODE RÈGLES ===
+panel_conf: 0.25                      # AUGMENTÉ de 0.15 → 0.25 (plus strict)
+panel_area_min_pct: 0.02              # AUGMENTÉ de 0.015 → 0.02 (comme règles)
+balloon_conf: 0.20                    # AUGMENTÉ de 0.12 → 0.20 (plus strict)
+balloon_area_min_pct: 0.005           # AUGMENTÉ de 0.0015 → 0.005 (plus strict)
+balloon_min_w: 50                     # AUGMENTÉ de 30 → 50 (plus strict)
+balloon_min_h: 40                     # AUGMENTÉ de 25 → 40 (plus strict)
+
+# === LIMITES RÉDUITES ===
+max_panels: 15                        # RÉDUIT de 20 → 15 (plus strict)
+max_balloons: 8                       # RÉDUIT de 10 → 8 (plus strict)
+max_det: 300                          # RÉDUIT de 500 → 300 (plus strict)
+
+# === FUSION PLUS AGRÉSSIVE ===
+enable_panel_merge: true              # Gardé activé
+panel_merge_iou: 0.30                 # RÉDUIT de 0.50 → 0.30 (plus de fusions)
+panel_merge_dist: 0.05                # RÉDUIT de 0.08 → 0.05 (plus de fusions)
+panel_containment_merge: 0.70         # RÉDUIT de 0.85 → 0.70 (plus de fusions)
+
+# === ROW MERGE PLUS AGRÉSSIF ===
+enable_row_merge: true                # Gardé activé
+panel_row_overlap: 0.40               # RÉDUIT de 0.60 → 0.40 (plus de fusions)
+panel_row_gap_pct: 0.05               # RÉDUIT de 0.08 → 0.05 (plus de fusions)
+iou_merge: 0.30                       # RÉDUIT de 0.50 → 0.30 (plus de fusions)
+
+# === DÉTECTION PAGE COMPLÈTE ===
+full_page_panel_pct: 0.95             # RÉDUIT de 0.99 → 0.95 (plus permissif)
+full_page_keep_balloons: true         # Garder
+full_page_balloon_overlap_pct: 0.10   # RÉDUIT de 0.15 → 0.10 (plus strict)
+
+# === TRAITEMENT IMAGE ===
+imgsz_max: 1536                      # Standard
+tile_target: 1024                    # Standard
+tile_overlap: 0.20                   # Standard
+force_tiling: false                  # Standard
+page_margin_inset_pct: 0.02          # Standard
+
+# === GUTTER SPLITTING DÉSACTIVÉ ===
+gutter_split_enable: false           # DÉSACTIVÉ pour éviter splits parasites
+gutter_min_gap_px: 50                # Très haut pour éviter splits
+gutter_min_contrast: 50              # Très haut pour éviter splits
+gutter_min_coverage: 0.95            # Très haut pour éviter splits
+gutter_dir: "both"                   # Les deux directions
+
+# === PARAMÈTRES YOLO CORRIGÉS ===
+iou: 0.4                             # RÉDUIT de 0.6 → 0.4 (plus de fusions)
+max_det_yolo: 400                    # RÉDUIT de 600 → 400 (plus strict)
+conf: 0.25                           # AUGMENTÉ de 0.15 → 0.25 (plus strict)
+augment: false
+verbose: false
+
+# === NOUVEAUX PARAMÈTRES HYBRIDES ===
+comics_optimized: true
+overlap_penalty: 0.15                # RÉDUIT de 0.2 → 0.15 (moins pénalisant)
+quality_score_threshold: 0.85        # RÉDUIT de 0.9 → 0.85 (plus permissif)
+
+# === CONFIGURATION DE DEBUG ===
+debug_detect: true                   # ACTIVÉ pour diagnostiquer
+debug_overlays: true
+save_debug_data: true
+
+# === PARAMÈTRES DE LECTURE ===
+reading_mode: true
+show_full_page_before_first_panel: true
+direction: "LR_TB"
+
+# === MÉTRIQUES À SURVEILLER ===
+metrics:
+  - quality_score
+  - overlap_count
+  - severe_overlap_count
+  - panel_count
+  - balloon_count

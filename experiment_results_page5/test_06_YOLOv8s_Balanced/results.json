@@ -1,0 +1,11 @@
+{
+  "test_id": "test_06_YOLOv8s_Balanced",
+  "model": "yolov8s.pt",
+  "config": "detect.yaml",
+  "page": 5,
+  "panels_raw": 108,
+  "panels_merged": 108,
+  "balloons_raw": 12,
+  "balloons_merged": 12,
+  "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/experiment_results_page5/test_06_YOLOv8s_Balanced"
+}

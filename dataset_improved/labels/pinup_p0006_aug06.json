@@ -1,0 +1,154 @@
+{
+  "version": "5.8.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "panel",
+      "points": [
+        [
+          308.43072412497605,
+          296.32740429107645
+        ],
+        [
+          1382.5856821487528,
+          980.1499859274196
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          303.4212229722577,
+          990.2821589483505
+        ],
+        [
+          1430.713088465971,
+          1271.32976712618
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          310.59875076684625,
+          1291.6510221473698
+        ],
+        [
+          1423.719792573214,
+          1606.4095325469377
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "panel",
+      "points": [
+        [
+          307.69388066898745,
+          1583.2157313522202
+        ],
+        [
+          1385.0140317312516,
+          1789.9306810440598
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1057.1934002377702,
+          300.7498658856311
+        ],
+        [
+          1383.3452658414503,
+          421.5314858633756
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1084.4601833770769,
+          1005.9224582138884
+        ],
+        [
+          1426.9401808217024,
+          1130.8619697557313
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1114.0938897315195,
+          1310.7279907806794
+        ],
+        [
+          1377.106489658632,
+          1457.4191664172029
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "balloon",
+      "points": [
+        [
+          1005.0250371746091,
+          1596.4356111887732
+        ],
+        [
+          1317.9558805869262,
+          1734.5548533103613
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "../../images/train/pinup_p0006.png",
+  "imageData": null,
+  "imageHeight": 2200,
+  "imageWidth": 1700
+}

@@ -1,0 +1,9 @@
+{
+  "detected_panels": 12,
+  "detected_balloons": 9,
+  "reference_panels": 13,
+  "reference_balloons": 13,
+  "panel_precision": 0.9230769230769231,
+  "balloon_precision": 0.6923076923076923,
+  "timestamp": 1757198693.593291
+}

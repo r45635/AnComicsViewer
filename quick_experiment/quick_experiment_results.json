@@ -1,0 +1,80 @@
+[
+  {
+    "description": "Enhanced Model + Balanced Config",
+    "model": "multibd_enhanced_v2.pt",
+    "config": "detect.yaml",
+    "success": false,
+    "panels_raw": 0,
+    "panels_merged": 0,
+    "balloons_raw": 0,
+    "balloons_merged": 0,
+    "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/quick_experiment/test_1",
+    "stdout": "",
+    "stderr": "usage: main.py [-h] [--config CONFIG] [--debug-detect]\n               [--save-debug-overlays SAVE_DEBUG_OVERLAYS]\nmain.py: error: unrecognized arguments: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf\n"
+  },
+  {
+    "description": "Enhanced Model + No Merge Config",
+    "model": "multibd_enhanced_v2.pt",
+    "config": "detect_no_merge.yaml",
+    "success": false,
+    "panels_raw": 0,
+    "panels_merged": 0,
+    "balloons_raw": 0,
+    "balloons_merged": 0,
+    "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/quick_experiment/test_2",
+    "stdout": "",
+    "stderr": "usage: main.py [-h] [--config CONFIG] [--debug-detect]\n               [--save-debug-overlays SAVE_DEBUG_OVERLAYS]\nmain.py: error: unrecognized arguments: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf\n"
+  },
+  {
+    "description": "Original Model + Balanced Config",
+    "model": "anComicsViewer_v01.pt",
+    "config": "detect.yaml",
+    "success": false,
+    "panels_raw": 0,
+    "panels_merged": 0,
+    "balloons_raw": 0,
+    "balloons_merged": 0,
+    "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/quick_experiment/test_3",
+    "stdout": "",
+    "stderr": "usage: main.py [-h] [--config CONFIG] [--debug-detect]\n               [--save-debug-overlays SAVE_DEBUG_OVERLAYS]\nmain.py: error: unrecognized arguments: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf\n"
+  },
+  {
+    "description": "Original Model + Gutter Config",
+    "model": "anComicsViewer_v01.pt",
+    "config": "detect_grid_gutters.yaml",
+    "success": false,
+    "panels_raw": 0,
+    "panels_merged": 0,
+    "balloons_raw": 0,
+    "balloons_merged": 0,
+    "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/quick_experiment/test_4",
+    "stdout": "",
+    "stderr": "usage: main.py [-h] [--config CONFIG] [--debug-detect]\n               [--save-debug-overlays SAVE_DEBUG_OVERLAYS]\nmain.py: error: unrecognized arguments: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf\n"
+  },
+  {
+    "description": "Improved Model + Balanced Config",
+    "model": "ancomics_improved.pt",
+    "config": "detect.yaml",
+    "success": false,
+    "panels_raw": 0,
+    "panels_merged": 0,
+    "balloons_raw": 0,
+    "balloons_merged": 0,
+    "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/quick_experiment/test_5",
+    "stdout": "",
+    "stderr": "usage: main.py [-h] [--config CONFIG] [--debug-detect]\n               [--save-debug-overlays SAVE_DEBUG_OVERLAYS]\nmain.py: error: unrecognized arguments: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf\n"
+  },
+  {
+    "description": "YOLOv8 Small + Balanced Config",
+    "model": "yolov8s.pt",
+    "config": "detect.yaml",
+    "success": false,
+    "panels_raw": 0,
+    "panels_merged": 0,
+    "balloons_raw": 0,
+    "balloons_merged": 0,
+    "output_dir": "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/quick_experiment/test_6",
+    "stdout": "",
+    "stderr": "usage: main.py [-h] [--config CONFIG] [--debug-detect]\n               [--save-debug-overlays SAVE_DEBUG_OVERLAYS]\nmain.py: error: unrecognized arguments: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/data/examples/Tintin - 161 - Le Lotus Bleu - .pdf\n"
+  }
+]

@@ -1,0 +1,88 @@
+# Configuration ULTIMATE pour AnComicsViewer - VERSION 100%
+# Désactivation fusion pour précision maximale
+# Date: September 2025
+
+description: "Configuration pour 100% précision - fusion désactivée"
+version: "2.1-100percent"
+
+# === PARAMÈTRES DE CONFIANCE OPTIMISÉS ===
+panel_conf: 0.15          # Augmenté pour réduire faux positifs
+balloon_conf: 0.2         # Confiance minimum balloons
+
+# === SEUILS DE TAILLE OPTIMISÉS ===
+panel_area_min_pct: 0.01   # 1% minimum (éviter très petits faux positifs)
+panel_area_max_pct: 0.8    # 80% maximum (éviter pages complètes)
+balloon_area_min_pct: 0.001 # 0.1% minimum (balloons très petits)
+balloon_area_max_pct: 0.3   # 30% maximum (éviter gros chevauchements)
+
+# === SEUILS DE TAILLE ABSOLUE ===
+panel_min_w: 80            # Largeur minimum augmentée
+panel_min_h: 60            # Hauteur minimum augmentée
+balloon_min_w: 30
+balloon_min_h: 22
+
+# === LIMITES OPTIMISÉES ===
+max_panels: 25             # Limite pour éviter sur-détection excessive
+max_balloons: 12
+max_det: 400
+
+# === FUSION DÉSACTIVÉE POUR PRÉCISION MAXIMALE ===
+enable_panel_merge: false   # DÉSACTIVÉ - CLÉ POUR 100%
+panel_merge_iou: 0.95       # Très haut pour éviter fusion
+panel_merge_dist: 0.001     # Très bas pour éviter fusion
+panel_containment_merge: 0.99 # Très haut pour éviter fusion
+
+# === FUSION PAR RANGÉES DÉSACTIVÉE ===
+enable_row_merge: false     # DÉSACTIVÉ pour précision
+panel_row_overlap: 0.95     # Très haut pour éviter fusion
+panel_row_gap_pct: 0.001    # Très bas pour éviter fusion
+
+# === DÉTECTION DE PAGE COMPLÈTE ===
+full_page_panel_pct: 0.85
+full_page_keep_balloons: true
+full_page_balloon_overlap_pct: 0.8
+
+# === GUTTER SPLIT DÉSACTIVÉ ===
+gutter_split_enable: false  # DÉSACTIVÉ pour éviter perte de panels
+gutter_min_gap_px: 50       # Haut pour éviter split
+gutter_min_contrast: 50     # Haut pour éviter split
+gutter_min_coverage: 0.95   # Haut pour éviter split
+gutter_dir: "both"
+
+# === PARAMÈTRES DE TRAITEMENT D'IMAGE ===
+imgsz_max: 1536
+tile_target: 1024
+tile_overlap: 0.20
+force_tiling: false
+
+# === PARAMÈTRES DE DÉTECTION YOLO ===
+iou: 0.6
+max_det_yolo: 400
+conf: 0.15
+augment: false
+verbose: false
+
+# === NOUVEAUX PARAMÈTRES OPTIMISÉS ===
+comics_optimized: true
+overlap_penalty: 0.1
+quality_score_threshold: 0.7
+
+# === CONFIGURATION DE DEBUG ===
+debug_detect: false
+debug_overlays: true
+save_debug_data: true
+
+# === PARAMÈTRES DE LECTURE ===
+reading_mode: true
+show_full_page_before_first_panel: true
+direction: "LR_TB"
+
+# === MÉTRIQUES À SURVEILLER ===
+metrics:
+  - quality_score
+  - overlap_count
+  - severe_overlap_count
+  - panel_count
+  - balloon_count
+  - balloon_count</content>
+<parameter name="filePath">/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/config/detect_100percent.yaml

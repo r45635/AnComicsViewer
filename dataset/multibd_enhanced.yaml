@@ -1,23 +1,15 @@
-# Configuration Multi-BD Enhanced v2
-# Classes: panel (cases), balloon (bulles)
-# Mise à jour: 2025-08-22 18:21:46
-
-path: ./dataset
-train: images/train
-val: images/val
-
-# Classes
-nc: 2
+description: Dataset Multi-BD Enhanced avec classes panel/balloon
 names:
   0: panel
   1: balloon
-
-# Métadonnées
-version: 2.0
-description: "Dataset Multi-BD Enhanced avec classes panel/balloon"
+nc: 2
+path: ./dataset
 sources:
-  - "Golden City (82 images)"
-  - "Tintin (61 images)"
-  - "Pin-up (48 images)"
-  - "Sisters (67 images)"
-total_images: 258
+- Golden City (82 images)
+- Tintin (61 images)
+- Pin-up (48 images)
+- Sisters (67 images)
+total_images: 158
+train: images/train
+val: images/val
+version: 2.0

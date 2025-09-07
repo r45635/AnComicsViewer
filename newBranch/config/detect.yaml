@@ -1,35 +1,44 @@
-# --- Panels ---
-panel_conf: 0.18
-panel_area_min_pct: 0.012        # 1.2% de la page
-panel_merge_iou: 0.40
-panel_merge_dist: 0.02           # distance relative pour fusion centres
-panel_merge_cont: 0.70           # containment hiérarchique
-enable_panel_merge: true
+# Configuration pour VIEWER DE COMICS - Détection équilibrée des vrais panels
+# Objectif: Détecter les vraies cases de BD avec seuils adaptés au modèle
 
-# --- Balloons ---
-balloon_conf: 0.22
-balloon_area_min_pct: 0.0006
-balloon_min_w: 30
-balloon_min_h: 22
-max_balloons: 12
+# === PARAMÈTRES DE CONFIANCE ADAPTÉS AU MODÈLE ===
+panel_conf: 0.005                     # Adapté aux scores réels du modèle (~0.001-0.002)
+panel_area_min_pct: 0.002             # 0.2% de la page minimum (panels moyens)
+balloon_conf: 0.01                    # Adapté pour les ballons
+balloon_area_min_pct: 0.0002          # 0.02% de la page minimum
+balloon_min_w: 15                     # Largeur minimale des ballons
+balloon_min_h: 12                     # Hauteur minimale des ballons
 
-# --- Row/band merge (affine les splits d'une même rangée) ---
-panel_row_overlap: 0.55
-panel_row_gap_pct: 0.03
-enable_row_merge: true
+# === LIMITES RAISONNABLES ===
+max_panels: 20                        # Nombre réaliste de panels par page
+max_balloons: 12                      # Nombre réaliste de ballons
+max_det: 600                          # Détections brutes suffisantes
 
-# --- Inference ---
-imgsz_max: 1280
-tile_target: 896
-tile_overlap: 0.20
-force_tiling: false
-max_det: 400
+# === FUSION INTELLIGENTE ACTIVÉE ===
+panel_merge_iou: 0.25                 # Fusion des panels qui se chevauchent
+panel_merge_dist: 0.03                # Distance relative pour fusion
+panel_containment_merge: 0.75         # Filtrage des contenances
+enable_panel_merge: true              # ACTIVÉ: Fusion intelligente
+panel_row_overlap: 0.35               # Chevauchement vertical pour rangées
+panel_row_gap_pct: 0.025              # Gap horizontal entre panels
+enable_row_merge: true                # ACTIVÉ: Fusion par rangées
+iou_merge: 0.25                       # Seuil IoU pour fusion
 
-# --- Full-page cover heuristic ---
-full_page_panel_pct: 0.80
+# === DÉTECTION PAGE COMPLÈTE MODÉRÉE ===
+full_page_panel_pct: 0.80             # Détection page complète si >80%
 full_page_keep_balloons: true
-full_page_balloon_overlap_pct: 0.10
+full_page_balloon_overlap_pct: 0.08   # Garder ballons qui chevauchent
 
-# --- Options avancées ---
-enable_antigrille: true
-debug_tiles: false
+# === RÉSOLUTION OPTIMISÉE ===
+imgsz_max: 2048                       # Résolution suffisante
+tile_target: 1536                     # Taille de tuile optimisée
+tile_overlap: 0.2                     # Recouvrement standard
+force_tiling: false                   # Pas de découpage forcé
+page_margin_inset_pct: 0.02           # Marge de page normale
+
+# === GUTTER SPLITTING MODÉRÉ ===
+gutter_split_enable: true             # ACTIVÉ: Division des gros panels
+gutter_min_gap_px: 6                  # Largeur minimale des gouttières
+gutter_min_contrast: 20               # Contraste minimum
+gutter_min_coverage: 0.55             # Couverture minimum
+gutter_dir: "both"

@@ -1,0 +1,37 @@
+ANALYSE VISUELLE - PAGE 22
+========================================
+
+📊 BRUTE:
+   🎯 Panels: 795
+   📏 Surface moyenne: 31,202 px²
+   📈 Distribution des 5 plus grands:
+.1f.1f.1f.1f.1f
+📊 FILTRE INITIAL:
+   🎯 Panels: 768
+   📏 Surface moyenne: 32,266 px²
+   📈 Distribution des 5 plus grands:
+.1f.1f.1f.1f.1f
+📊 MERGING:
+   🎯 Panels: 9
+   📏 Surface moyenne: 1,205,908 px²
+   📈 Distribution des 5 plus grands:
+.1f.1f.1f.1f.1f
+📊 GUTTER SPLIT:
+   🎯 Panels: 9
+   📏 Surface moyenne: 1,205,908 px²
+   📈 Distribution des 5 plus grands:
+.1f.1f.1f.1f.1f
+📊 PAGE COMPLETE:
+   🎯 Panels: 9
+   📏 Surface moyenne: 1,205,908 px²
+   📈 Distribution des 5 plus grands:
+.1f.1f.1f.1f.1f
+📊 FINAL:
+   🎯 Panels: 9
+   📏 Surface moyenne: 1,205,908 px²
+   📈 Distribution des 5 plus grands:
+.1f.1f.1f.1f.1f
+🎯 ANALYSE FINALE:
+   ✅ 9 panels détectés avec succès
+   📏 Tailles réalistes pour une bande dessinée
+.1f

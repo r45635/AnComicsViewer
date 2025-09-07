@@ -1,0 +1,38 @@
+# Panels/Balloons thresholds - low to see all detections
+panel_conf: 0.05
+panel_area_min_pct: 0.0005
+balloon_conf: 0.03
+balloon_area_min_pct: 0.00005
+max_panels: 50
+max_balloons: 100
+
+# Merge tuning - DISABLED to see raw boxes
+enable_panel_merge: false
+panel_merge_iou: 0.95  # Very high to prevent merging
+panel_merge_dist: 0.001  # Very low to prevent merging
+panel_containment_merge: 0.99  # Very high to prevent merging
+
+# Row merge: DISABLED
+enable_row_merge: false
+panel_row_overlap: 0.95  # Very high to prevent merging
+panel_row_gap_pct: 0.001  # Very low to prevent merging
+iou_merge: 0.95  # Very high to prevent merging
+
+# Full-page guard - very high to prevent triggering
+full_page_panel_pct: 0.999
+full_page_keep_balloons: true
+full_page_balloon_overlap_pct: 0.95
+
+# Tiling & geometry
+imgsz_max: 2048
+tile_target: 1024
+tile_overlap: 0.20
+force_tiling: false
+page_margin_inset_pct: 0.01
+
+# Gutter-based split DISABLED to see raw boxes
+gutter_split_enable: false
+gutter_min_gap_px: 50  # High to prevent splitting
+gutter_min_contrast: 50  # High to prevent splitting
+gutter_min_coverage: 0.95  # High to prevent splitting
+gutter_dir: "both"

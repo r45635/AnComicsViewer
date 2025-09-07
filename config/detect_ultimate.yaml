@@ -1,0 +1,79 @@
+# Configuration ULTIMATE pour AnComicsViewer
+# Basé sur notre audit des chevauchements et optimisations comics
+# Date: September 2025
+
+description: "Configuration optimisée pour comics avec gestion avancée des chevauchements"
+version: "2.0-ultimate"
+
+# === PARAMÈTRES DE CONFIANCE OPTIMISÉS ===
+panel_conf: 0.25          # Confiance minimum panels (réduit pour mieux détecter)
+balloon_conf: 0.2         # Confiance minimum balloons (réduit pour mieux détecter)
+
+# === SEUILS DE TAILLE OPTIMISÉS ===
+panel_area_min_pct: 0.005   # 0.5% minimum (panels très petits dans comics)
+panel_area_max_pct: 0.8     # 80% maximum (éviter pages complètes)
+balloon_area_min_pct: 0.001 # 0.1% minimum (balloons très petits)
+balloon_area_max_pct: 0.3   # 30% maximum (éviter gros chevauchements)
+
+# === SEUILS DE TAILLE ABSOLUE ===
+panel_min_w: 50             # Largeur minimum panels
+panel_min_h: 40             # Hauteur minimum panels
+balloon_min_w: 30
+balloon_min_h: 22
+
+# === LIMITES OPTIMISÉES ===
+max_panels: 20
+max_balloons: 12
+max_det: 400
+
+# === PARAMÈTRES DE TRAITEMENT D'IMAGE ===
+imgsz_max: 1536
+tile_target: 1024
+tile_overlap: 0.20
+force_tiling: false
+
+# === FUSION DE PANELS OPTIMISÉE ===
+enable_panel_merge: true
+panel_merge_iou: 0.25
+panel_merge_dist: 0.02
+panel_containment_merge: 0.55
+
+# === FUSION PAR RANGÉES ===
+enable_row_merge: true
+panel_row_overlap: 0.35
+panel_row_gap_pct: 0.02
+
+# === DÉTECTION DE PAGE COMPLÈTE ===
+full_page_panel_pct: 0.85
+full_page_keep_balloons: true
+full_page_balloon_overlap_pct: 0.8
+
+# === PARAMÈTRES DE DÉTECTION YOLO ===
+iou: 0.6
+max_det_yolo: 400
+conf: 0.25
+augment: false
+verbose: false
+
+# === NOUVEAUX PARAMÈTRES OPTIMISÉS ===
+comics_optimized: true
+overlap_penalty: 0.1
+quality_score_threshold: 0.7
+
+# === CONFIGURATION DE DEBUG ===
+debug_detect: false
+debug_overlays: true
+save_debug_data: true
+
+# === PARAMÈTRES DE LECTURE ===
+reading_mode: true
+show_full_page_before_first_panel: true
+direction: "LR_TB"
+
+# === MÉTRIQUES À SURVEILLER ===
+metrics:
+  - quality_score
+  - overlap_count
+  - severe_overlap_count
+  - panel_count
+  - balloon_count
