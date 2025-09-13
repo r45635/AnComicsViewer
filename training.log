@@ -1,0 +1,67 @@
+2025-09-07 09:04:21,831 - INFO - 🚀 AnComicsViewer - Optimized YOLO Training Setup
+2025-09-07 09:04:21,831 - INFO - ============================================================
+2025-09-07 09:04:21,831 - INFO - ✅ All validation checks passed
+2025-09-07 09:04:21,831 - INFO - 🔧 Creating optimized training configuration...
+2025-09-07 09:04:21,832 - INFO - Dataset: 116 train, 42 val images
+2025-09-07 09:04:21,832 - INFO - 
+📋 Training Configuration:
+2025-09-07 09:04:21,832 - INFO -    model: yolov8m.pt
+2025-09-07 09:04:21,832 - INFO -    data: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/multibd_enhanced.yaml
+2025-09-07 09:04:21,832 - INFO -    epochs: 250
+2025-09-07 09:04:21,832 - INFO -    imgsz: 1024
+2025-09-07 09:04:21,832 - INFO -    batch: 4
+2025-09-07 09:04:21,832 - INFO -    nms: True
+2025-09-07 09:04:21,832 - INFO -    iou: 0.3
+2025-09-07 09:04:21,832 - INFO -    conf: 0.25
+2025-09-07 09:04:21,832 - INFO -    mosaic: 0.3
+2025-09-07 09:04:21,832 - INFO -    mixup: 0.0
+2025-09-07 09:04:21,832 - INFO -    device: mps
+2025-09-07 09:04:21,832 - INFO -    workers: 4
+2025-09-07 09:04:21,832 - INFO -    cache: True
+2025-09-07 09:04:21,832 - INFO -    amp: True
+2025-09-07 09:04:21,832 - INFO -    optimizer: AdamW
+2025-09-07 09:04:21,832 - INFO -    lr0: 0.001
+2025-09-07 09:04:21,832 - INFO -    lrf: 0.01
+2025-09-07 09:04:21,832 - INFO -    momentum: 0.937
+2025-09-07 09:04:21,832 - INFO -    weight_decay: 0.0005
+2025-09-07 09:04:21,832 - INFO -    hsv_h: 0.015
+2025-09-07 09:04:21,832 - INFO -    hsv_s: 0.7
+2025-09-07 09:04:21,832 - INFO -    hsv_v: 0.4
+2025-09-07 09:04:21,832 - INFO -    degrees: 5.0
+2025-09-07 09:04:21,832 - INFO -    translate: 0.1
+2025-09-07 09:04:21,832 - INFO -    scale: 0.5
+2025-09-07 09:04:21,832 - INFO -    shear: 2.0
+2025-09-07 09:04:21,832 - INFO -    flipud: 0.0
+2025-09-07 09:04:21,832 - INFO -    fliplr: 0.5
+2025-09-07 09:04:21,832 - INFO -    patience: 50
+2025-09-07 09:04:21,832 - INFO -    save: True
+2025-09-07 09:04:21,832 - INFO -    save_period: 25
+2025-09-07 09:04:21,832 - INFO -    plots: True
+2025-09-07 09:04:21,832 - INFO -    verbose: True
+2025-09-07 09:04:21,832 - INFO -    name: ancomics_class_aware_nms_tiling_250ep
+2025-09-07 09:04:21,832 - INFO -    seed: 42
+2025-09-07 09:04:21,832 - INFO -    deterministic: True
+2025-09-07 09:04:21,832 - INFO - 
+📋 Tiling Configuration:
+2025-09-07 09:04:21,832 - INFO -    tile_size: 1024
+2025-09-07 09:04:21,832 - INFO -    tile_overlap: 0.6
+2025-09-07 09:04:21,832 - INFO -    tile_stride: 0.4
+2025-09-07 09:04:21,832 - INFO -    min_tile_area: 0.1
+2025-09-07 09:04:21,832 - INFO -    max_tiles_per_image: 16
+2025-09-07 09:04:21,833 - INFO - Configuration saved to /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/config/train_optimized_250ep_1024px.yaml
+2025-09-07 09:04:21,834 - INFO - Configuration saved to /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/config/tiling_augmentation.yaml
+2025-09-07 09:04:21,834 - INFO - 
+🚀 Training Command:
+2025-09-07 09:04:21,834 - INFO -    yolo train --model "yolov8m.pt" --data "/Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/dataset/multibd_enhanced.yaml" --epochs 250 --imgsz 1024 --batch 4 --nms --iou 0.3 --conf 0.25 --mosaic 0.3 --mixup 0.0 --device "mps" --workers 4 --cache --amp --optimizer "AdamW" --lr0 0.001 --lrf 0.01 --momentum 0.937 --weight_decay 0.0005 --hsv_h 0.015 --hsv_s 0.7 --hsv_v 0.4 --degrees 5.0 --translate 0.1 --scale 0.5 --shear 2.0 --flipud 0.0 --fliplr 0.5 --patience 50 --save --save_period 25 --plots --verbose --name "ancomics_class_aware_nms_tiling_250ep" --seed 42 --deterministic
+2025-09-07 09:04:21,834 - INFO - 
+💾 Training script saved: /Users/vincentcruvellier/Documents/GitHub/AnComicsViewer/run_optimized_training.sh
+2025-09-07 09:04:21,834 - INFO - 
+🎯 Ready to start training with:
+2025-09-07 09:04:21,834 - INFO -    ✅ 250 epochs
+2025-09-07 09:04:21,834 - INFO -    ✅ 1024px image size
+2025-09-07 09:04:21,834 - INFO -    ✅ Class-aware NMS
+2025-09-07 09:04:21,834 - INFO -    ✅ Tiling support (60% overlap)
+2025-09-07 09:04:21,834 - INFO -    ✅ Realistic augmentations
+2025-09-07 09:04:21,834 - INFO -    ✅ No vertical flips or MixUp
+2025-09-07 09:04:21,834 - INFO - 
+▶️  Run training with: ./run_optimized_training.sh

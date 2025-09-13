@@ -1,13 +1,31 @@
 # detection & post-filters
-panel_conf: 0.05                      # INCREASED from 0.01 to reduce false positives
-panel_area_min_pct: 0.0005            # ULTRA-LOW (0.05% of page)
-balloon_conf: 0.01                    # ULTRA-LOW for maximum detection
-balloon_area_min_pct: 0.0001          # LOWERED (0.01% of page)
-balloon_min_w: 10                     # LOWERED for narrow balloons
-balloon_min_h: 8                      # LOWERED for short balloons
-max_balloons: 20                      # INCREASED for more balloons
-max_panels: 30                        # INCREASED for more panels
-max_det: 600                          # INCREASED for more detections
+panel_conf: 0.30                      # Refined confidence threshold for panels
+balloon_conf: 0.38                    # Refined confidence threshold for balloons
+panel_area_min_pct: 0.03              # Minimum panel area (3% of page)
+panel_area_max_pct: 0.90              # Maximum panel area (90% of page)
+balloon_area_min_pct: 0.0020          # Minimum balloon area (0.20% of page)
+balloon_area_max_pct: 0.30            # Maximum balloon area (30% of page)
+
+# NMS per class
+panel_nms_iou: 0.30                   # NMS IoU threshold for panels
+balloon_nms_iou: 0.25                 # NMS IoU threshold for balloons
+
+# size & margin filters
+min_box_w_px: 32                      # Minimum box width in pixels
+min_box_h_px: 28                      # Minimum box height in pixels
+page_margin_inset_pct: 0.015          # Page margin inset percentage
+
+# balloon→panel assignment rule
+balloon_min_overlap_panel: 0.06       # Minimum overlap for balloon to be attached to panel
+
+# output quantity limits
+max_panels: 12                        # Maximum number of panels to keep
+max_balloons: 24                      # Maximum number of balloons to keep
+
+# legacy compatibility
+balloon_min_w: 10                     # LEGACY: for backward compatibility
+balloon_min_h: 8                      # LEGACY: for backward compatibility
+max_det: 600                          # Maximum detections from YOLO
 
 # merging & post-processing
 panel_merge_iou: 0.4                  # LESS AGGRESSIVE merging
@@ -29,7 +47,6 @@ imgsz_max: 4096                       # ULTRA-HIGH RESOLUTION for maximum detect
 tile_target: 1536                     # INCREASED for less tiling
 tile_overlap: 0.25                    # INCREASED for better coverage
 force_tiling: false
-page_margin_inset_pct: 0.01           # REDUCED for processing more of page
 
 # gutter splitting parameters
 gutter_split_enable: false            # DISABLED for debugging

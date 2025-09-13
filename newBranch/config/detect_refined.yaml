@@ -1,0 +1,42 @@
+# Configuration raffinée pour éviter les panels fantômes sur couvertures et grandes illustrations
+# Durcit les seuils et ajoute une règle spécifique aux couvertures
+
+# === SEUILS DE CONFIANCE & NMS ===
+panel_conf: 0.42                 # ↑ avant ~0.28-0.30, plus strict
+balloon_conf: 0.38
+panel_nms_iou: 0.28              # NMS un peu plus strict
+balloon_nms_iou: 0.25
+
+# === PRIORS DE TAILLE & MARGES ===
+panel_area_min_pct: 0.040        # 4% de la page minimum
+panel_area_max_pct: 0.92
+balloon_area_min_pct: 0.0025     # 0.25% de la page minimum
+balloon_area_max_pct: 0.30
+min_box_w_px: 36                 # Taille minimale plus stricte
+min_box_h_px: 30
+page_margin_inset_pct: 0.015     # 1.5% de bordure exclue
+
+# === RÈGLE D'ATTACHE BALLOONS→PANEL ===
+balloon_min_overlap_panel: 0.06  # 6% du ballon doit chevaucher un panel
+
+# === CLAMPS (QUANTITÉS MAXIMALES) ===
+max_panels: 10                   # Plus agressif qu'avant (12)
+max_balloons: 20                 # Plus agressif qu'avant (24)
+
+# === RÈGLE COUVERTURE (FALLBACK PLEIN-PAGE) ===
+cover_rule_enable: true
+cover_pages: [0, 1]              # Pages 1-2 (index 0-1) considérées comme couvertures
+cover_min_balloons: 1            # Si ≤ 1 balloon détecté...
+cover_fullpage_min_pct: 0.85     # ...et plus gros panel < 85% de la page...
+cover_max_panels_before_force: 5 # ...ou ≥ 5 panels → forcer 1 panel pleine page
+
+# === PARAMÈTRES DE DÉTECTION YOLO ===
+detect_mode: "hybrid"            # "hybrid", "yolo", "rules_only"
+iou_merge: 0.25
+max_det: 400
+imgsz_max: 1536
+tile_target: 1024
+tile_overlap: 0.20
+
+# === LECTURE GUIDÉE ===
+reading_mode: false

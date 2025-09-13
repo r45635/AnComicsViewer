@@ -1,0 +1,115 @@
+[
+  {
+    "page_index": 2,
+    "panels": 3,
+    "balloons": 1,
+    "panel_area_ratios": [
+      0.06606416257019729,
+      0.07128649034558283,
+      0.11289698618322856
+    ],
+    "balloon_area_ratios": [
+      0.005138304610557156
+    ],
+    "overlaps": 1,
+    "severe_overlaps": 1,
+    "quality_score": 0.0
+  },
+  {
+    "page_index": 0,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 1,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 2,
+    "panels": 6,
+    "balloons": 0,
+    "panel_area_ratios": [
+      0.056668849164773084,
+      0.055259914476955614,
+      0.08586968587006792,
+      0.07874354369544305,
+      0.09239923958985027,
+      0.0894294831902762
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 2,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 3,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 4,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 4,
+    "panels": 9,
+    "balloons": 0,
+    "panel_area_ratios": [
+      0.05346640568938012,
+      0.07651715345468914,
+      0.052904676756500346,
+      0.06801719730554937,
+      0.08838944287759277,
+      0.09220294538307193,
+      0.09463176971611587,
+      0.07933632181669666,
+      0.07322163931532709
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  }
+]

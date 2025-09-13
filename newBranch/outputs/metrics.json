@@ -1,0 +1,38 @@
+[
+  {
+    "page_index": 5,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 9,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  },
+  {
+    "page_index": 10,
+    "panels": 1,
+    "balloons": 0,
+    "panel_area_ratios": [
+      1.0
+    ],
+    "balloon_area_ratios": [],
+    "overlaps": 0,
+    "severe_overlaps": 0,
+    "quality_score": 1.0
+  }
+]
