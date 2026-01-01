@@ -8,6 +8,7 @@
 
 [![Windows CI](https://github.com/r45635/AnComicsViewer/actions/workflows/windows-smoke.yml/badge.svg)](https://github.com/r45635/AnComicsViewer/actions/workflows/windows-smoke.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 </div>
 
@@ -15,18 +16,20 @@
 
 ## Overview
 
-AnComicsViewer is a single-file PySide6 + OpenCV-based viewer that detects rectangular panels on comic book pages using a sophisticated heuristic pipeline. It features an interactive Panel Tuning dialog for real-time parameter adjustment and immediate re-detection.
+AnComicsViewer is a modular PySide6 + OpenCV-based comics viewer that detects rectangular panels using a sophisticated heuristic pipeline. It features an interactive Panel Tuning dialog for real-time parameter adjustment and includes optimizations like LRU caching and thread-safe detection.
 
-## ✨ Features
+## Features
 
-- 🎯 **Heuristic panel detection** using adaptive thresholding, morphological cleanup, light/gutter splitting, and recursive projection splitting
-- ⚙️ **Interactive Panel Tuning dialog** with DPI-stable fractional thresholds, projection smoothing, and title-row heuristics
-- 📊 **Two-scenario title detection** (many small OR few big title boxes)
-- 🔍 **Runtime parameter logging** printed to stdout for reproducible detection settings
-- 🖥️ **Cross-platform support** (macOS, Windows, Linux)
-- 📱 **Modern Qt-based UI** with panel overlay visualization
+- **Heuristic panel detection** using adaptive thresholding, morphological cleanup, light/gutter splitting, and recursive projection splitting
+- **Interactive Panel Tuning dialog** with DPI-stable fractional thresholds, projection smoothing, and title-row heuristics
+- **Modular architecture** with clean separation of concerns for maintainability
+- **LRU caching** for efficient panel detection results
+- **Thread-safe detection** with proper locking mechanisms
+- **Preset configurations** for Franco-Belge, Manga, and Newspaper comics
+- **Cross-platform support** (macOS, Windows, Linux)
+- **Modern Qt-based UI** with panel overlay visualization
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Python 3.9+ (tested with 3.11)
@@ -45,7 +48,7 @@ AnComicsViewer is a single-file PySide6 + OpenCV-based viewer that detects recta
    ```bash
    # macOS/Linux
    source .venv/bin/activate
-   
+
    # Windows
    .venv\Scripts\activate
    ```
@@ -57,59 +60,129 @@ AnComicsViewer is a single-file PySide6 + OpenCV-based viewer that detects recta
 
 ### Running the Application
 
-#### macOS (recommended method):
+#### Using helper scripts (recommended):
+
 ```bash
+# macOS/Linux
 chmod +x run.sh
 ./run.sh
-```
 
-#### Windows:
-```powershell
+# Windows
 .\run_win.ps1
 ```
 
-#### Manual (any platform):
+#### As a Python module:
 ```bash
-# macOS: ensure Qt can find the cocoa platform plugin
-QT_QPA_PLATFORM_PLUGIN_PATH=$(python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins', 'platforms'))") \
-  .venv/bin/python AnComicsViewer.py
+python -m ancomicsviewer
 ```
 
-## 🎮 Usage
+#### Direct execution:
+```bash
+python AnComicsViewer.py
+```
+
+## Usage
 
 1. **Launch the app** using one of the methods above
 2. **Open a PDF** via File menu or drag & drop
 3. **Navigate pages** using toolbar buttons or keyboard shortcuts
-4. **Access Panel Tuning** via the ⚙️ button in the toolbar
-5. **Adjust parameters** and click "Apply" to see immediate results
-6. **Monitor detection logs** in the terminal for debugging
+4. **Toggle panel mode** with Ctrl+2 to see detected panels
+5. **Navigate panels** with N (next) and Shift+N (previous)
+6. **Access Panel Tuning** via the gear button in the toolbar
+7. **Apply presets** for different comic styles (Franco-Belge, Manga, Newspaper)
 
-### Expected Output
-The app prints parameter snapshots and per-page detection debug messages to the terminal:
+### Keyboard Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Open PDF | Ctrl+O |
+| First page | Home |
+| Last page | End |
+| Previous page | Page Up |
+| Next page | Page Down |
+| Zoom in | Ctrl++ |
+| Zoom out | Ctrl+- |
+| Fit to width | Ctrl+1 |
+| Fit to page | Ctrl+0 |
+| Toggle panels | Ctrl+2 |
+| Next panel | N |
+| Previous panel | Shift+N |
+| Cycle framing | F |
+
+## Project Structure
+
 ```
-[Panels] params: ab=51 C=5 mk=7 mi=2 min_area=0.015 max_area=0.95 min_fill=0.55 min_px=80 ... psk=17
-[Panels] Converted to gray: 1200x1858
-[Panels] Adaptive route -> 5 rects
-[Panels] [title-row] y=0.14 h=0.070 n=2 medW=0.26 L=0.66 -> KEEP (many_small=False few_big=True)
+AnComicsViewer/
+├── AnComicsViewer.py          # Legacy entry point (backward compatible)
+├── ancomicsviewer/            # Main package
+│   ├── __init__.py           # Package exports
+│   ├── __main__.py           # Module entry point
+│   ├── config.py             # Configuration dataclasses & presets
+│   ├── detector.py           # Panel detection engine
+│   ├── image_utils.py        # QImage/NumPy conversions
+│   ├── pdf_view.py           # Custom PDF view widget
+│   ├── dialogs.py            # Tuning dialogs
+│   ├── cache.py              # LRU cache implementation
+│   └── main_window.py        # Main application window
+├── smoke_test.py             # Integration test
+├── requirements.txt          # Python dependencies
+├── run.sh                    # macOS/Linux launcher
+└── run_win.ps1               # Windows launcher
 ```
 
-## 🔧 Troubleshooting
+## Architecture
 
-### macOS Issues
-- **Qt cocoa plugin not found**: Use the provided `run.sh` script or set `QT_QPA_PLATFORM_PLUGIN_PATH` as shown above
-- **PySide6 compatibility**: Tested with `PySide6==6.8.3`. Adjust in `requirements.txt` if needed
+### Key Components
 
-### Windows Issues  
-- **Platform plugin errors**: Use the `run_win.ps1` PowerShell script
-- **Path issues**: Ensure Python and pip are in your PATH
+| Module | Description |
+|--------|-------------|
+| `config.py` | `DetectorConfig` and `AppConfig` dataclasses with 40+ tunable parameters |
+| `detector.py` | `PanelDetector` class with multi-route detection (Adaptive, LAB, Canny) |
+| `cache.py` | Thread-safe `LRUCache` and `PanelCache` for efficient caching |
+| `pdf_view.py` | `PannablePdfView` with pan/zoom and overlay support |
+| `dialogs.py` | `PanelTuningDialog` for interactive parameter adjustment |
+| `main_window.py` | `ComicsView` main application window |
 
-### General Issues
-- **Import errors**: Activate the virtual environment: `source .venv/bin/activate` (macOS/Linux) or `.venv\Scripts\activate` (Windows)
-- **Missing dependencies**: Run `pip install -r requirements.txt`
+### Detection Pipeline
 
-## 🧪 Testing
+```
+PDF Page → QImage → NumPy (RGBA)
+    ↓
+Grayscale + LAB L-channel (CLAHE)
+    ↓
+┌─────────────────────────────────────┐
+│ Route 1: Adaptive Threshold         │
+│ Route 2: LAB L-channel (fallback)   │
+│ Route 3: Canny edges (optional)     │
+└─────────────────────────────────────┘
+    ↓
+Contours → Bounding Boxes
+    ↓
+Base Filters (area%, fill ratio, size)
+    ↓
+IoU-based Merge
+    ↓
+Recursive Light Split (gutter detection)
+    ↓
+Title Row Filter
+    ↓
+Reading Order Sort (LTR/RTL)
+    ↓
+Panel QRectF[] (page points, 72 DPI)
+```
+
+### Performance Optimizations
+
+- **LRU Cache**: Stores detection results per page with configurable size
+- **Config Hash Validation**: Automatically invalidates cache when parameters change
+- **Thread Safety**: Proper locking for concurrent access
+- **Contiguous Arrays**: NumPy arrays optimized for OpenCV operations
+- **Lazy Loading**: Dependencies loaded only when needed
+
+## Testing
 
 Run the smoke test to verify installation:
+
 ```bash
 python smoke_test.py
 ```
@@ -117,40 +190,57 @@ python smoke_test.py
 Expected output:
 ```json
 {
-  "count": 3,
+  "count": 2,
   "rects": [
-    {"x": 50.0, "y": 100.0, "w": 700.0, "h": 300.0},
-    ...
+    {"x": 33.0, "y": 83.0, "w": 735.0, "h": 335.0},
+    {"x": 43.0, "y": 433.0, "w": 715.0, "h": 535.0}
   ]
 }
 ```
 
-## 👨‍💻 Development
+## Troubleshooting
 
-### Project Structure
-- `AnComicsViewer.py` - Main application (single file)
-- `PanelDetector` class - Detection pipeline and tunables
-- `PanelTuningDialog` - Interactive parameter adjustment UI
-- `ComicsView` - Main window with PDF viewer and panel overlay
+### macOS Issues
+- **Qt cocoa plugin not found**: Use the provided `run.sh` script
+- **PySide6 compatibility**: Tested with `PySide6==6.8.3`
 
-### Key Classes
-- **PanelDetector**: Core detection logic with configurable parameters
-- **PanelTuningDialog**: UI for real-time parameter tuning
-- **ComicsView**: Main application window and PDF handling
+### Windows Issues
+- **Platform plugin errors**: Use the `run_win.ps1` PowerShell script
+- **Path issues**: Ensure Python and pip are in your PATH
 
-### Detection Pipeline
-1. **Adaptive thresholding** - Convert to binary mask
-2. **Morphological operations** - Clean up noise
-3. **Contour detection** - Find rectangular regions
-4. **Light/gutter splitting** - Recursive panel separation
-5. **Title-row filtering** - Remove text-heavy regions
-6. **Panel merging** - Combine adjacent regions
+### General Issues
+- **Import errors**: Activate the virtual environment first
+- **Missing dependencies**: Run `pip install -r requirements.txt`
 
-## 📝 License
+## API Usage
+
+```python
+from ancomicsviewer import PanelDetector, DetectorConfig
+from PySide6.QtCore import QSizeF
+from PySide6.QtGui import QImage
+
+# Create detector with custom config
+config = DetectorConfig(
+    adaptive_block=51,
+    min_fill_ratio=0.6,
+    reading_rtl=True,  # Manga mode
+)
+detector = PanelDetector(config)
+
+# Detect panels
+qimage = QImage("page.png")
+page_size = QSizeF(612, 792)  # Letter size in points
+panels = detector.detect_panels(qimage, page_size)
+
+for i, panel in enumerate(panels):
+    print(f"Panel {i+1}: ({panel.x()}, {panel.y()}) {panel.width()}x{panel.height()}")
+```
+
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -158,55 +248,19 @@ MIT License - see [LICENSE](LICENSE) file for details.
 4. Run the smoke test
 5. Submit a pull request
 
-## 📊 Status
+## Status
 
-- ✅ Core panel detection working
-- ✅ Interactive tuning dialog
-- ✅ Cross-platform support (macOS, Windows)  
-- ✅ CI/CD pipeline
-- ⏳ Additional detection algorithms (future)
-- ⏳ Batch processing support (future)
+- Core panel detection working
+- Interactive tuning dialog
+- Modular architecture (v2.0)
+- LRU caching and performance optimizations
+- Cross-platform support (macOS, Windows)
+- CI/CD pipeline
 
 ---
 
 <div align="center">
-Made with ❤️ for comic and manga readers everywhere
+Made with care for comic and manga readers everywhere
+
+**Author:** Vincent Cruvellier
 </div>
-
-## Quick troubleshooting
-- Error "Could not find the Qt platform plugin \"cocoa\"": confirm the env-var above points to a directory that contains files like `libqcocoa.dylib` (or similar). If not present, reinstall PySide6 in the venv: `pip install --force-reinstall PySide6`.
-- If OpenCV wheels fail to install via pip on your macOS setup, try installing a binary wheel (arm64/x86) via pip from PyPI or install OpenCV system-wide and use the `opencv-python` wheel.
-
-## Notes
-- The app uses PySide6, numpy and OpenCV for panel detection. `requirements.txt` pins reasonable defaults but you can adjust versions if needed.
-- To run without a venv, adapt the `QT_QPA_PLATFORM_PLUGIN_PATH` resolution to the Python you will use.
-
-If you want, I can try launching the app here (I will set the env var and run it to capture logs), or I can add a short helper script to automate the env-var detection and launch.
-# AnComicsViewer
-
-AnComicsViewer is a simple Python-based application for viewing comics. This project is in its initial setup phase.
-
-## Features
-- Comic viewing (to be implemented)
-
-## Getting Started
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/r45635/AnComicsViewer.git
-   ```
-2. Run the main script:
-   ```bash
-   python AnComicsViewer.py
-   ```
-
-## Requirements
-- Python 3.7+
-
-## License
-See [LICENSE](LICENSE) for details.
-
-## Contributing
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
-## Author
-- Vincent Cruvellier
