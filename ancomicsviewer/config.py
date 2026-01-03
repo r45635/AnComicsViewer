@@ -24,23 +24,23 @@ class DetectorConfig:
     adaptive_C: int = 5           # Offset for adaptive threshold
 
     # Morphology parameters
-    morph_kernel: int = 5         # Kernel size for morphological operations (reduced for better gutter preservation)
-    morph_iter: int = 1           # Number of morphology iterations (reduced to preserve thin gutters)
+    morph_kernel: int = 3         # Kernel size for morphological operations (compromise for various page layouts)
+    morph_iter: int = 1           # Number of morphology iterations
     morph_scale_with_dpi: bool = True  # Scale morphology kernel with image resolution
 
     # Base filter parameters (as fractions of page area/dimensions)
-    min_area_pct: float = 0.025   # Minimum panel area (2.5% of page - filters speech bubbles)
+    min_area_pct: float = 0.008   # Minimum panel area (0.8% to catch very small panels)
     max_area_pct: float = 0.95    # Maximum panel area (exclude full-bleed)
-    min_fill_ratio: float = 0.50  # Minimum contour fill ratio (relaxed for irregular panels)
-    min_rect_px: int = 40         # Minimum panel dimension in pixels (lowered for low-res detection)
-    min_rect_frac: float = 0.045  # Minimum panel dimension as fraction of page
+    min_fill_ratio: float = 0.50  # Minimum contour fill ratio (stricter to filter noise)
+    min_rect_px: int = 45         # Minimum panel dimension in pixels
+    min_rect_frac: float = 0.05   # Minimum panel dimension as fraction of page
 
     # Gutter detection parameters
-    min_gutter_px: int = 4        # Minimum gutter thickness in pixels (lowered for thin gutters)
-    min_gutter_frac: float = 0.008  # Minimum gutter as fraction of block (more sensitive)
-    max_gutter_px_frac: float = 0.08  # Maximum gutter as fraction of block (increased)
-    gutter_cov_min: float = 0.82  # Minimum brightness coverage for gutter (relaxed for better detection)
-    edge_margin_frac: float = 0.02  # Margin from edges for gutter detection (reduced)
+    min_gutter_px: int = 5        # Minimum gutter thickness in pixels
+    min_gutter_frac: float = 0.010  # Minimum gutter as fraction of block
+    max_gutter_px_frac: float = 0.08  # Maximum gutter as fraction of block
+    gutter_cov_min: float = 0.85  # Minimum brightness coverage for gutter (stricter for better white space detection)
+    edge_margin_frac: float = 0.02  # Margin from edges for gutter detection
 
     # Brightness-based split parameters
     light_col_rel: float = 0.12   # Column brightness threshold (relative)
@@ -48,7 +48,7 @@ class DetectorConfig:
     proj_smooth_k: int = 15       # Projection smoothing kernel (must be odd)
 
     # Title row filter parameters
-    filter_title_rows: bool = True
+    filter_title_rows: bool = False  # Disabled - causes too many false positives
     title_row_top_frac: float = 0.20      # Title must be in top X% of page
     title_row_max_h_frac: float = 0.10    # Maximum title row height
     title_row_median_w_frac_max: float = 0.25  # Maximum median width

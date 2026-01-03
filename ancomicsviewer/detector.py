@@ -118,6 +118,18 @@ class PanelDetector:
             h, w = arr.shape[:2]
             pdebug(f"Image size: {w}x{h}")
 
+            # Handle very large images by scaling down temporarily for detection
+            # but scale results back up to original coordinates
+            scale_factor = 1.0
+            max_width = 2400  # Maximum working width for detection
+            if w > max_width:
+                scale_factor = max_width / w
+                new_w = int(w * scale_factor)
+                new_h = int(h * scale_factor)
+                pdebug(f"Scaling down from {w}x{h} to {new_w}x{new_h} (factor: {scale_factor:.2f})")
+                arr = cv2.resize(arr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                h, w = arr.shape[:2]
+
             # Prepare grayscale and LAB L channel
             gray = rgba_to_grayscale(arr)
             L = rgba_to_lab_l(arr, apply_clahe=True)
@@ -125,19 +137,15 @@ class PanelDetector:
             # Try detection routes in order
             rects = self._try_detection_routes(gray, L, w, h, page_point_size)
 
-            # Post-processing: split by light and filter title rows
-            if rects:
-                rects = self._split_rects_by_light(L, rects, w, h, page_point_size)
-                pdebug(f"After light split -> {len(rects)} rects")
-
-            # Filter by minimum area (post-split cleanup)
-            if rects:
-                rects = self._filter_by_area(rects, page_point_size)
-                pdebug(f"After area filter -> {len(rects)} rects")
-
+            # Filter title rows (top 35% of page)
             if rects and self.config.filter_title_rows:
                 rects = self._filter_title_rows(L, rects, w, h, page_point_size)
                 pdebug(f"After title-row filter -> {len(rects)} rects")
+
+            # Filter by minimum area
+            if rects:
+                rects = self._filter_by_area(rects, page_point_size)
+                pdebug(f"After area filter -> {len(rects)} rects")
 
             # Sort by reading order
             rects = self._sort_by_reading_order(rects)
@@ -166,65 +174,47 @@ class PanelDetector:
     def _try_detection_routes(
         self, gray: NDArray, L: NDArray, w: int, h: int, page_point_size: QSizeF
     ) -> List[QRectF]:
-        """Try detection routes in order until one succeeds."""
+        """Simple detection using adaptive threshold (proven to work)."""
 
-        # Calculate scale factor for DPI-adaptive morphology
-        # Reference: 1500px width = scale 1.0 (roughly 150 DPI on A4)
-        reference_width = 1500.0
-        scale_factor = w / reference_width
-
-        # Route 1: Adaptive threshold
-        mask = self._adaptive_route(gray, scale_factor)
+        # Use adaptive threshold route only
+        mask = self._adaptive_route(gray)
         rects = self._rects_from_mask(mask, w, h, page_point_size)
         pdebug(f"Adaptive route -> {len(rects)} rects")
-        if rects:
-            return rects
-
-        # Route 2: LAB L-channel
-        mask = self._lab_route(L)
-        rects = self._rects_from_mask(mask, w, h, page_point_size)
-        pdebug(f"LAB route -> {len(rects)} rects")
-        if rects:
-            return rects
-
-        # Route 3: Canny (if enabled)
-        if self.config.use_canny_fallback:
-            pdebug("Trying Canny fallback...")
-            mask = self._canny_route(gray)
-            rects = self._rects_from_mask(mask, w, h, page_point_size)
-            pdebug(f"Canny route -> {len(rects)} rects")
-
+        
         return rects
 
-    def _adaptive_route(self, gray: NDArray, scale_factor: float = 1.0) -> NDArray:
+    def _adaptive_route(self, gray: NDArray) -> NDArray:
         """Primary detection route using adaptive threshold.
 
-        Args:
-            gray: Grayscale image
-            scale_factor: Scale factor for DPI-adaptive morphology (1.0 = 150 DPI reference)
+        Uses bilateral filter + adaptive threshold + morphological closing.
         """
         c = self.config
-        k = c.adaptive_block | 1  # Ensure odd
-        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        h, w = gray.shape[:2]
+        
+        # Adapt block size to image resolution
+        # For very large images, use relative block size
+        # For standard images (1200px wide): block_size = 99
+        # For large images (2400px wide): block_size = 199 
+        relative_block = 99 * (w / 1200.0)
+        block_size = int(relative_block) | 1  # Make odd
+        block_size = max(51, min(201, block_size))  # Clamp between 51 and 201
+        
+        # Use bilateral filter to preserve edges while smoothing text
+        gray_smooth = cv2.bilateralFilter(gray, 9, 75, 75)
 
         th = cv2.adaptiveThreshold(
-            gray_blur, 255,
+            gray_smooth, 255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY_INV,
-            k, c.adaptive_C
+            block_size, 5
         )
 
-        # Adaptive morphology kernel based on image resolution
-        if c.morph_scale_with_dpi:
-            # Scale kernel size with resolution (smaller kernel for lower res to preserve gutters)
-            scaled_kernel = max(3, int(c.morph_kernel * scale_factor)) | 1  # Ensure odd
-            scaled_iter = max(1, int(c.morph_iter * scale_factor))
-        else:
-            scaled_kernel = c.morph_kernel
-            scaled_iter = c.morph_iter
-
-        kernel = np.ones((scaled_kernel, scaled_kernel), np.uint8)
-        return cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=scaled_iter)
+        # Morphological closing to connect borders
+        # Also adapt kernel size
+        kernel_size = int(c.morph_kernel * (w / 1200.0)) | 1
+        kernel_size = max(3, min(15, kernel_size))
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        return cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=c.morph_iter)
 
     def _lab_route(self, L: NDArray) -> NDArray:
         """LAB L-channel fallback route."""
@@ -244,10 +234,45 @@ class PanelDetector:
         dil = cv2.dilate(edges, kernel, iterations=2)
         return cv2.morphologyEx(dil, cv2.MORPH_CLOSE, kernel, iterations=2)
 
+    def _gutter_based_detection(
+        self, 
+        gray: NDArray, 
+        L: NDArray, 
+        w: int, 
+        h: int, 
+        page_point_size: QSizeF
+    ) -> List[QRectF]:
+        """Detect panels by finding white gutters (separations) instead of panels.
+        
+        This inverse approach works better when panels contain lots of text that
+        fragments the standard detection.
+        """
+        # Use high-contrast binarization to find white spaces
+        _, binary = cv2.threshold(L, 220, 255, cv2.THRESH_BINARY)
+        
+        # Dilate to connect nearby white pixels (gutters)
+        gutter_kernel = np.ones((3, 3), np.uint8)
+        gutters = cv2.dilate(binary, gutter_kernel, iterations=1)
+        
+        # Invert: black becomes white (panels), white becomes black (gutters)
+        panels_mask = cv2.bitwise_not(gutters)
+        
+        # Clean up with morphology
+        clean_kernel = np.ones((5, 5), np.uint8)
+        panels_mask = cv2.morphologyEx(panels_mask, cv2.MORPH_CLOSE, clean_kernel, iterations=2)
+        panels_mask = cv2.morphologyEx(panels_mask, cv2.MORPH_OPEN, clean_kernel, iterations=1)
+        
+        # Extract rectangles
+        return self._rects_from_mask(panels_mask, w, h, page_point_size)
+
     def _rects_from_mask(
         self, mask: NDArray, w: int, h: int, page_point_size: QSizeF
     ) -> List[QRectF]:
-        """Extract and filter rectangles from binary mask."""
+        """Extract and filter rectangles from binary mask.
+        
+        Uses relaxed thresholds for initial extraction to catch fragments,
+        proper filtering happens later after merging.
+        """
         c = self.config
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -257,28 +282,29 @@ class PanelDetector:
         page_area_px = float(w * h)
         scale = w / float(page_point_size.width()) if page_point_size.width() > 0 else 1.0
 
-        # Dynamic minimum size (DPI-stable)
-        min_px_dyn = max(c.min_rect_px, int(c.min_rect_frac * min(w, h)))
+        # Relaxed threshold for initial extraction (half of normal)
+        min_area_initial = c.min_area_pct / 2.0  # More permissive
+        min_px_dyn = max(c.min_rect_px // 2, int(c.min_rect_frac * min(w, h) / 2))
 
         rects: List[QRectF] = []
         for contour in contours:
             x, y, cw, ch = cv2.boundingRect(contour)
 
-            # Area filters
+            # Area filter (relaxed)
             area_px = cw * ch
             area_pct = area_px / page_area_px
-            if not (c.min_area_pct <= area_pct <= c.max_area_pct):
+            if area_pct < min_area_initial or area_pct > c.max_area_pct:
                 continue
 
-            # Fill ratio filter
+            # Fill ratio filter (relaxed)
             contour_area = float(cv2.contourArea(contour))
             if contour_area <= 0:
                 continue
             fill = contour_area / float(area_px)
-            if fill < c.min_fill_ratio:
+            if fill < (c.min_fill_ratio * 0.8):  # 20% more permissive
                 continue
 
-            # Size filter
+            # Size filter (relaxed)
             if cw < min_px_dyn or ch < min_px_dyn:
                 continue
 
@@ -508,73 +534,40 @@ class PanelDetector:
         self, L_img: NDArray, rects_pts: List[QRectF],
         W: int, H: int, page_point_size: QSizeF
     ) -> List[QRectF]:
-        """Remove title rows (top, small, bright, multi-box patterns)."""
+        """Filter out title boxes at top of page.
+        
+        More selective: only removes small boxes in top 15% of page.
+        Real panels are usually taller and don't get filtered.
+        """
+        if not rects_pts:
+            return []
+        
         c = self.config
-        scale = W / float(page_point_size.width()) if page_point_size.width() > 0 else 1.0
-
-        # Convert to pixel coordinates and sort by Y
-        items = [
-            (int(r.left()*scale), int(r.top()*scale),
-             int(r.width()*scale), int(r.height()*scale), r)
-            for r in rects_pts
-        ]
-        items.sort(key=lambda t: t[1])
-
-        # Group by vertical overlap
-        rows: List[List[int, int, List]] = []  # [y0, y1, items]
-        for x, y, w, h, r in items:
-            placed = False
-            for row in rows:
-                ry0, ry1, lst = row
-                if not (y + h < ry0 or y > ry1):  # Overlap
-                    row[0] = min(ry0, y)
-                    row[1] = max(ry1, y + h)
-                    lst.append((x, y, w, h, r))
-                    placed = True
-                    break
-            if not placed:
-                rows.append([y, y + h, [(x, y, w, h, r)]])
-
+        
         keep = []
-        page_h = float(H)
-
-        for ry0, ry1, lst in rows:
-            y_center_frac = ((ry0 + ry1) / 2.0) / page_h
-            median_h_frac = np.median([h for _, _, _, h, _ in lst]) / page_h
-            median_w_frac = np.median([w for _, _, w, _, _ in lst]) / float(W)
-            count = len(lst)
-
-            # Mean luminosity of row band
-            band = L_img[max(0, ry0):min(H, ry1), :]
-            meanL = float(band.mean()) / 255.0 if band.size else 0.0
-
-            # Two title patterns
-            many_small = (
-                count >= c.title_row_min_boxes and
-                median_w_frac <= c.title_row_median_w_frac_max
-            )
-            few_big = (
-                count >= c.title_row_big_min_boxes and
-                median_w_frac >= c.title_row_big_w_min_frac
-            )
-
-            drop = (
-                y_center_frac < c.title_row_top_frac and
-                median_h_frac < c.title_row_max_h_frac and
-                meanL >= c.title_row_min_meanL and
-                (many_small or few_big)
-            )
-
-            if c.debug:
-                pdebug(
-                    f"[title-row] y={y_center_frac:.2f} h={median_h_frac:.3f} "
-                    f"n={count} medW={median_w_frac:.2f} L={meanL:.2f} -> "
-                    f"{'DROP' if drop else 'KEEP'}"
-                )
-
-            if not drop:
-                keep.extend(item[4] for item in lst)
-
+        for r in rects_pts:
+            # Only check boxes in top 15% of page (not 35%)
+            in_top = r.top() < 0.15 * page_point_size.height()
+            
+            if in_top:
+                # Additional checks to distinguish title from real panel:
+                # Title boxes are usually:
+                # - Short (< 12% of page height)
+                # - Wide OR centered
+                h_ratio = r.height() / page_point_size.height()
+                w_ratio = r.width() / page_point_size.width()
+                
+                is_short = h_ratio < 0.12
+                is_wide = w_ratio > 0.35
+                
+                # If short AND wide, likely a title
+                if is_short and is_wide:
+                    if c.debug:
+                        pdebug(f"[title-row] Removed title box at y={r.top():.0f} h={r.height():.0f}")
+                    continue
+            
+            keep.append(r)
+        
         return keep
 
     def _filter_by_area(self, rects: List[QRectF], page_point_size: QSizeF) -> List[QRectF]:
@@ -622,5 +615,191 @@ class PanelDetector:
                 # LTR: left to right (smaller X first)
                 row_sorted = sorted(row, key=lambda r: r.left())
             result.extend(row_sorted)
+        
+        return result
+
+    def _remove_contained_and_merge_overlaps(self, rects: List[QRectF]) -> List[QRectF]:
+        """Remove rectangles contained in others and merge high overlaps.
+        
+        This handles cases where:
+        1. Small fragments are fully inside a larger panel
+        2. Two rectangles overlap significantly (e.g. 50% overlap)
+        """
+        if len(rects) < 2:
+            return rects
+        
+        # Sort by area (largest first)
+        sorted_rects = sorted(rects, key=lambda r: r.width() * r.height(), reverse=True)
+        
+        result = []
+        
+        for rect_a in sorted_rects:
+            # Check if this rect is contained in any already-kept rect
+            is_contained = False
+            merge_index = None
+            
+            for idx, rect_b in enumerate(result):
+                # Calculate intersection
+                inter = rect_a.intersected(rect_b)
+                if inter.isEmpty():
+                    continue
+                
+                inter_area = inter.width() * inter.height()
+                area_a = rect_a.width() * rect_a.height()
+                area_b = rect_b.width() * rect_b.height()
+                
+                # Check if rect_a is contained in rect_b (>70% overlap)
+                overlap_ratio_a = inter_area / area_a if area_a > 0 else 0
+                overlap_ratio_b = inter_area / area_b if area_b > 0 else 0
+                
+                if overlap_ratio_a > 0.7:
+                    is_contained = True
+                    pdebug(f"  Removed contained: {rect_a.width():.0f}x{rect_a.height():.0f} ({overlap_ratio_a*100:.0f}% in {rect_b.width():.0f}x{rect_b.height():.0f})")
+                    break
+                
+                # Check if significant overlap but not contained (merge case)
+                # Only merge if neither is mostly contained (to avoid merging nested panels)
+                smaller_area = min(area_a, area_b)
+                if inter_area / smaller_area > 0.5 and overlap_ratio_a <= 0.7 and overlap_ratio_b <= 0.7:
+                    # Merge by creating union
+                    merge_index = idx
+                    break
+            
+            if is_contained:
+                # Skip this rectangle
+                continue
+            elif merge_index is not None:
+                # Merge with existing rectangle
+                union = self._union(rect_a, result[merge_index])
+                pdebug(f"  Merged overlap: {rect_a.width():.0f}x{rect_a.height():.0f} + {result[merge_index].width():.0f}x{result[merge_index].height():.0f} → {union.width():.0f}x{union.height():.0f}")
+                result[merge_index] = union
+            else:
+                # Keep this rectangle
+                result.append(rect_a)
+        
+        if len(result) < len(rects):
+            pdebug(f"  Containment/overlap cleanup: {len(rects)} → {len(result)} rects")
+        
+        return result
+
+    def _merge_fragments(self, rects: List[QRectF], page_point_size: QSizeF) -> List[QRectF]:
+        """Merge small rectangles that are likely fragments of a single panel.
+        
+        Improved algorithm:
+        - Removes rectangles fully contained in others
+        - Merges rectangles with high overlap
+        - Detects fragments that align vertically or horizontally
+        - Merges fragments that share similar X or Y coordinates
+        - Handles text boxes that fragment into horizontal strips
+        """
+        if len(rects) < 2:
+            return rects
+        
+        # Step 1: Remove contained rectangles and merge high overlaps
+        rects = self._remove_contained_and_merge_overlaps(rects)
+        if len(rects) < 2:
+            return rects
+        
+        page_area = page_point_size.width() * page_point_size.height()
+        page_width = page_point_size.width()
+        page_height = page_point_size.height()
+        
+        # More aggressive fragment detection for text-heavy panels
+        fragment_threshold = page_area * 0.025  # 2.5% of page
+        
+        # Identify potential fragments
+        fragments = []
+        normal_panels = []
+        
+        for r in rects:
+            area = r.width() * r.height()
+            if area < fragment_threshold:
+                fragments.append(r)
+            else:
+                normal_panels.append(r)
+        
+        if len(fragments) < 2:
+            return rects
+        
+        pdebug(f"  Fragment merge: {len(fragments)} fragments, {len(normal_panels)} normal panels")
+        
+        # Try to merge fragments using clustering
+        merged = []
+        used = set()
+        
+        for i, frag in enumerate(fragments):
+            if i in used:
+                continue
+            
+            # Build cluster of vertically or horizontally aligned fragments
+            cluster = [frag]
+            cluster_indices = {i}
+            
+            # Keep expanding cluster
+            changed = True
+            while changed:
+                changed = False
+                for j, other in enumerate(fragments):
+                    if j in used or j in cluster_indices:
+                        continue
+                    
+                    # Check alignment with any fragment in cluster
+                    for c in cluster:
+                        # Horizontal alignment (similar Y, close X)
+                        y_overlap = min(c.bottom(), other.bottom()) - max(c.top(), other.top())
+                        x_gap = max(c.left(), other.left()) - min(c.right(), other.right())
+                        
+                        # Vertical alignment (similar X, close Y)
+                        x_overlap = min(c.right(), other.right()) - max(c.left(), other.left())
+                        y_gap = max(c.top(), other.top()) - min(c.bottom(), other.bottom())
+                        
+                        # Gap thresholds
+                        max_h_gap = page_width * 0.02  # 2% horizontal gap
+                        max_v_gap = page_height * 0.03  # 3% vertical gap
+                        
+                        # Horizontal strip (text lines)
+                        if y_overlap > 0 and x_gap < max_h_gap:
+                            cluster.append(other)
+                            cluster_indices.add(j)
+                            changed = True
+                            break
+                        
+                        # Vertical strip
+                        elif x_overlap > 0 and y_gap < max_v_gap:
+                            cluster.append(other)
+                            cluster_indices.add(j)
+                            changed = True
+                            break
+            
+            # Merge cluster if it contains multiple fragments
+            if len(cluster) >= 2:
+                # Create bounding box
+                min_x = min(r.left() for r in cluster)
+                min_y = min(r.top() for r in cluster)
+                max_x = max(r.right() for r in cluster)
+                max_y = max(r.bottom() for r in cluster)
+                
+                merged_rect = QRectF(min_x, min_y, max_x - min_x, max_y - min_y)
+                merged_area = merged_rect.width() * merged_rect.height()
+                
+                # Validate merged rectangle
+                if merged_area < page_area * self.config.max_area_pct:
+                    merged.append(merged_rect)
+                    used.update(cluster_indices)
+                    pdebug(f"  Merged {len(cluster)} fragments → {merged_rect.width():.0f}x{merged_rect.height():.0f}pt")
+                else:
+                    # Too large, keep fragments
+                    merged.extend(cluster)
+                    used.update(cluster_indices)
+            else:
+                # Keep single fragment
+                merged.append(frag)
+                used.add(i)
+        
+        # Combine with normal panels
+        result = normal_panels + merged
+        
+        if len(merged) < len(fragments):
+            pdebug(f"  Fragment reduction: {len(fragments)} → {len(merged)}")
         
         return result
