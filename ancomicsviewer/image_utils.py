@@ -31,7 +31,8 @@ from PySide6.QtGui import QImage
 def pdebug(*parts: object) -> None:
     """Thread-safe debug logger for panel detection."""
     try:
-        sys.stdout.write("[Panels] " + " ".join(map(str, parts)) + "\n")
+        msg = "[Panels] " + " ".join(map(str, parts)) + "\n"
+        sys.stdout.write(msg)
         sys.stdout.flush()
     except Exception:
         pass

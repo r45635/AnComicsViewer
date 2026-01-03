@@ -18,6 +18,8 @@ from PySide6.QtWidgets import QMenu
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
 
+from .image_utils import pdebug
+
 if TYPE_CHECKING:
     from .detector import DebugInfo
 
@@ -44,6 +46,9 @@ class PannablePdfView(QPdfView):
         self._overlay_rects: List[QRectF] = []
         self._debug_info: Optional[DebugInfo] = None
         self._show_debug_lines = False
+        
+        # Debug configuration
+        self._config_debug = True  # Enable debug logging for coordinate conversion
 
     # --- Panning with left click ---
 
@@ -142,21 +147,8 @@ class PannablePdfView(QPdfView):
         self._overlay_enabled = bool(enabled)
         self._debug_info = debug_info
         self._show_debug_lines = show_debug
-        self._invalidate_page_cache()  # Invalidate on overlay change
 
-        # Pre-compute page origin before triggering repaint
-        if enabled and rects:
-            from PySide6.QtCore import QTimer
-            # Use a short delay to let the view settle before detection
-            QTimer.singleShot(50, self._precompute_page_origin)
-        else:
-            self.viewport().update()
-
-    def _precompute_page_origin(self) -> None:
-        """Pre-compute page origin for overlay alignment."""
-        cur = self.pageNavigator().currentPage()
-        origin = self._find_page_origin()
-        self._cached_page_origin = (cur, origin[0], origin[1], origin[2])
+        # Trigger repaint immediately - calculations happen in paintEvent
         self.viewport().update()
 
     # --- Coordinate conversion helpers ---
@@ -231,10 +223,18 @@ class PannablePdfView(QPdfView):
             # Calculate actual width and scale
             actual_width = right_edge - left_edge
             expected_width = page_pts.width() * z
-            scale = actual_width / expected_width if expected_width > 0 else 1.0
+            detected_scale = actual_width / expected_width if expected_width > 0 else 1.0
 
-            # Sanity check scale - if invalid, use stored scale
-            if scale < 0.8 or scale > 1.5:
+            # Force scale to 1.0 - Qt should render at exact zoom factor
+            # Auto-detection can be inaccurate due to pixel sampling artifacts
+            scale = 1.0
+            
+            # Log the detected vs forced scale for debugging
+            if self._config_debug and abs(detected_scale - 1.0) > 0.05:
+                pdebug(f"Scale detection: detected={detected_scale:.3f}, using scale=1.0 (forced)")
+
+            # Sanity check - if detection is way off, use fallback
+            if detected_scale < 0.8 or detected_scale > 1.5:
                 return self._fallback_page_origin()
 
             # Store successful scale for this page (for use when zoomed in)
@@ -298,7 +298,7 @@ class PannablePdfView(QPdfView):
     def _page_to_view_xy(self, x_pt: float, y_pt: float) -> tuple[float, float]:
         """Convert page point coordinates to viewport pixels.
 
-        Uses actual detected page position for accurate overlay alignment.
+        Simple direct calculation based on page position in viewport.
         """
         doc = self.document()
         if not doc:
@@ -307,24 +307,52 @@ class PannablePdfView(QPdfView):
         cur = self.pageNavigator().currentPage()
         page_pts = doc.pagePointSize(cur)
         z = self.zoomFactor()
-
-        # Get cached page origin (detection happens via _precompute_page_origin)
-        # If cache miss, use fallback to avoid recursive repaint
-        cache = getattr(self, '_cached_page_origin', None)
-        if cache is None or cache[0] != cur:
-            # Use fallback during paint - precompute will update later
-            origin = self._fallback_page_origin()
-            origin_x, origin_y, scale = origin
+        
+        # Get viewport dimensions
+        vw = self.viewport().width()
+        vh = self.viewport().height()
+        
+        # Calculate page size in pixels
+        page_w = page_pts.width() * z
+        page_h = page_pts.height() * z
+        
+        # Get document margins and spacing - force recalculation
+        margins = self.documentMargins()
+        spacing = self.pageSpacing()
+        
+        # In SinglePage mode (panel mode), page is centered if smaller than viewport
+        if self.pageMode() == QPdfView.PageMode.SinglePage:
+            # Center horizontally if page is smaller than viewport
+            page_x = margins.left() + max(0.0, (vw - margins.left() - margins.right() - page_w) / 2.0)
+            # Top margin for vertical
+            page_y = margins.top()
         else:
-            _, origin_x, origin_y, scale = cache
-
-        # Apply scale to zoom factor for correct sizing
-        effective_z = z * scale
-
-        # Calculate position relative to detected page origin
-        x = origin_x + (x_pt * effective_z)
-        y = origin_y + (y_pt * effective_z)
-        return (x, y)
+            # In MultiPage mode, calculate position based on previous pages
+            page_x = margins.left()
+            page_y = margins.top()
+            
+            # Add heights of all previous pages
+            for i in range(cur):
+                prev_pts = doc.pagePointSize(i)
+                page_y += prev_pts.height() * z + spacing
+        
+        # Subtract scroll position - get fresh values
+        hbar = self.horizontalScrollBar()
+        vbar = self.verticalScrollBar()
+        sx = hbar.value() if hbar else 0
+        sy = vbar.value() if vbar else 0
+        
+        page_x -= sx
+        page_y -= sy
+        
+        # Convert page coordinates to viewport coordinates
+        view_x = page_x + (x_pt * z)
+        view_y = page_y + (y_pt * z)
+        
+        if self._config_debug:
+            pdebug(f"_page_to_view: pt=({x_pt:.1f},{y_pt:.1f}) z={z:.3f} mode={self.pageMode()} vp={vw}x{vh} page={page_w:.1f}x{page_h:.1f} margins=({margins.left():.1f},{margins.top():.1f}) scroll=({sx},{sy}) -> pos=({page_x:.1f},{page_y:.1f}) view=({view_x:.1f},{view_y:.1f})")
+        
+        return (view_x, view_y)
 
     def _invalidate_page_cache(self) -> None:
         """Invalidate cached page origin (call on scroll, zoom, page change)."""
@@ -333,16 +361,11 @@ class PannablePdfView(QPdfView):
     def _page_rect_to_view(self, r: QRectF) -> QRectF:
         """Convert page point rectangle to viewport pixels."""
         x, y = self._page_to_view_xy(r.left(), r.top())
-
-        # Use detected scale if available
+        
         z = self.zoomFactor()
-        cache = getattr(self, '_cached_page_origin', None)
-        if cache is not None:
-            _, _, _, scale = cache
-            z *= scale
-
         w = r.width() * z
         h = r.height() * z
+        
         return QRectF(x, y, w, h)
 
     # --- Paint overlay ---

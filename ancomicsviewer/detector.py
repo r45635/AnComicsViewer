@@ -141,6 +141,7 @@ class PanelDetector:
 
             # Sort by reading order
             rects = self._sort_by_reading_order(rects)
+            pdebug(f"Reading order: RTL={self.config.reading_rtl}")
 
             return rects
 
@@ -591,6 +592,35 @@ class PanelDetector:
 
     def _sort_by_reading_order(self, rects: List[QRectF]) -> List[QRectF]:
         """Sort rectangles by reading order (LTR or RTL)."""
-        if self.config.reading_rtl:
-            return sorted(rects, key=lambda r: (r.top(), -r.left()))
-        return sorted(rects, key=lambda r: (r.top(), r.left()))
+        # First, group by rows (similar Y positions)
+        if not rects:
+            return []
+        
+        # Sort by top first
+        sorted_by_top = sorted(rects, key=lambda r: r.top())
+        
+        # Group into rows (panels with similar Y position)
+        rows = []
+        current_row = [sorted_by_top[0]]
+        row_threshold = 20  # pixels tolerance for same row
+        
+        for rect in sorted_by_top[1:]:
+            if abs(rect.top() - current_row[0].top()) < row_threshold:
+                current_row.append(rect)
+            else:
+                rows.append(current_row)
+                current_row = [rect]
+        rows.append(current_row)
+        
+        # Sort each row by reading direction
+        result = []
+        for row in rows:
+            if self.config.reading_rtl:
+                # RTL: right to left (larger X first)
+                row_sorted = sorted(row, key=lambda r: -r.left())
+            else:
+                # LTR: left to right (smaller X first)
+                row_sorted = sorted(row, key=lambda r: r.left())
+            result.extend(row_sorted)
+        
+        return result

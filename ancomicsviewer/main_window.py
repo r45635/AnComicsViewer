@@ -87,6 +87,21 @@ class ComicsView(QMainWindow):
         self.view.pageNavigator().currentPageChanged.connect(self._on_page_changed)
         self.view.pageNavigator().currentPageChanged.connect(self._update_status)
 
+        # Auto-load sample PDF if available
+        self._auto_load_sample()
+
+    def _auto_load_sample(self) -> None:
+        """Auto-load a sample PDF from samples_PDF directory if available."""
+        import glob
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        samples_dir = os.path.join(script_dir, "samples_PDF")
+        
+        if os.path.exists(samples_dir):
+            pdf_files = glob.glob(os.path.join(samples_dir, "*.pdf"))
+            if pdf_files:
+                # Load the first PDF found
+                QTimer.singleShot(100, lambda: self.load_pdf(pdf_files[0]))
+
     # ========== UI Building ==========
 
     def _build_toolbar(self) -> None:
@@ -381,6 +396,14 @@ class ComicsView(QMainWindow):
         self.fit_page()
         self._panel_cache.clear()
         self._panel_index = -1
+        
+        # If panel mode is already on, update after layout stabilizes
+        if self._panel_mode:
+            QTimer.singleShot(200, lambda: (
+                self._ensure_panels(force=True),
+                self._update_overlay()
+            ))
+        
         self._update_status()
         return True
 
@@ -491,12 +514,34 @@ class ComicsView(QMainWindow):
         self.view.setPageMode(
             QPdfView.PageMode.SinglePage if self._panel_mode else QPdfView.PageMode.MultiPage
         )
+        
+        # In panel mode, force zoom to 1.0 to match detection coordinates
+        if self._panel_mode:
+            self.view.setZoomMode(QPdfView.ZoomMode.Custom)
+            self.view.setZoomFactor(1.0)
+        
         self._panel_index = -1
         self._ensure_panels(force=True)
-        self._update_overlay()
+        
+        # Force Qt to process layout changes before updating overlay
+        if self._panel_mode:
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()  # Process pending layout events
+            QTimer.singleShot(100, self._update_overlay_delayed)
+        else:
+            self._update_overlay()
+        
         self.statusBar().showMessage(
             "Panel mode ON" if self._panel_mode else "Panel mode OFF", 2000
         )
+    
+    def _update_overlay_delayed(self) -> None:
+        """Update overlay after a delay to ensure viewport is stable."""
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()  # Ensure layout is complete
+        self._update_overlay()
+        # Force viewport repaint
+        self.view.viewport().update()
 
     def panel_next(self) -> None:
         """Navigate to next panel."""
@@ -561,7 +606,12 @@ class ComicsView(QMainWindow):
             qsize = QSizeF(pt.width() * scale, pt.height() * scale).toSize()
             qimg = self.document.render(cur, qsize)
 
+            pdebug(f"Detection: page_points=({pt.width():.1f}x{pt.height():.1f}) dpi={dpi} scale={scale:.3f} img_size=({qimg.width()}x{qimg.height()})")
+            
             rects = self._detector.detect_panels(qimg, pt)
+            if rects:
+                pdebug(f"First rect in page points: ({rects[0].left():.1f},{rects[0].top():.1f},{rects[0].width():.1f}x{rects[0].height():.1f})")
+            
             self._panel_cache.put(cur, rects)
             pdebug(f"ensure_panels: page={cur}, panels={len(rects)} @ {int(dpi)} DPI")
 
