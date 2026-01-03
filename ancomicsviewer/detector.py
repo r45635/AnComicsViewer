@@ -130,6 +130,11 @@ class PanelDetector:
                 rects = self._split_rects_by_light(L, rects, w, h, page_point_size)
                 pdebug(f"After light split -> {len(rects)} rects")
 
+            # Filter by minimum area (post-split cleanup)
+            if rects:
+                rects = self._filter_by_area(rects, page_point_size)
+                pdebug(f"After area filter -> {len(rects)} rects")
+
             if rects and self.config.filter_title_rows:
                 rects = self._filter_title_rows(L, rects, w, h, page_point_size)
                 pdebug(f"After title-row filter -> {len(rects)} rects")
@@ -162,8 +167,13 @@ class PanelDetector:
     ) -> List[QRectF]:
         """Try detection routes in order until one succeeds."""
 
+        # Calculate scale factor for DPI-adaptive morphology
+        # Reference: 1500px width = scale 1.0 (roughly 150 DPI on A4)
+        reference_width = 1500.0
+        scale_factor = w / reference_width
+
         # Route 1: Adaptive threshold
-        mask = self._adaptive_route(gray)
+        mask = self._adaptive_route(gray, scale_factor)
         rects = self._rects_from_mask(mask, w, h, page_point_size)
         pdebug(f"Adaptive route -> {len(rects)} rects")
         if rects:
@@ -185,8 +195,13 @@ class PanelDetector:
 
         return rects
 
-    def _adaptive_route(self, gray: NDArray) -> NDArray:
-        """Primary detection route using adaptive threshold."""
+    def _adaptive_route(self, gray: NDArray, scale_factor: float = 1.0) -> NDArray:
+        """Primary detection route using adaptive threshold.
+
+        Args:
+            gray: Grayscale image
+            scale_factor: Scale factor for DPI-adaptive morphology (1.0 = 150 DPI reference)
+        """
         c = self.config
         k = c.adaptive_block | 1  # Ensure odd
         gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -198,8 +213,17 @@ class PanelDetector:
             k, c.adaptive_C
         )
 
-        kernel = np.ones((c.morph_kernel, c.morph_kernel), np.uint8)
-        return cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=c.morph_iter)
+        # Adaptive morphology kernel based on image resolution
+        if c.morph_scale_with_dpi:
+            # Scale kernel size with resolution (smaller kernel for lower res to preserve gutters)
+            scaled_kernel = max(3, int(c.morph_kernel * scale_factor)) | 1  # Ensure odd
+            scaled_iter = max(1, int(c.morph_iter * scale_factor))
+        else:
+            scaled_kernel = c.morph_kernel
+            scaled_iter = c.morph_iter
+
+        kernel = np.ones((scaled_kernel, scaled_kernel), np.uint8)
+        return cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=scaled_iter)
 
     def _lab_route(self, L: NDArray) -> NDArray:
         """LAB L-channel fallback route."""
@@ -551,6 +575,19 @@ class PanelDetector:
                 keep.extend(item[4] for item in lst)
 
         return keep
+
+    def _filter_by_area(self, rects: List[QRectF], page_point_size: QSizeF) -> List[QRectF]:
+        """Filter rectangles by minimum area percentage."""
+        c = self.config
+        page_area = page_point_size.width() * page_point_size.height()
+        if page_area <= 0:
+            return rects
+
+        min_area = page_area * c.min_area_pct
+        max_area = page_area * c.max_area_pct
+
+        return [r for r in rects
+                if min_area <= (r.width() * r.height()) <= max_area]
 
     def _sort_by_reading_order(self, rects: List[QRectF]) -> List[QRectF]:
         """Sort rectangles by reading order (LTR or RTL)."""

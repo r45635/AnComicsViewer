@@ -24,22 +24,23 @@ class DetectorConfig:
     adaptive_C: int = 5           # Offset for adaptive threshold
 
     # Morphology parameters
-    morph_kernel: int = 7         # Kernel size for morphological operations
-    morph_iter: int = 2           # Number of morphology iterations
+    morph_kernel: int = 5         # Kernel size for morphological operations (reduced for better gutter preservation)
+    morph_iter: int = 1           # Number of morphology iterations (reduced to preserve thin gutters)
+    morph_scale_with_dpi: bool = True  # Scale morphology kernel with image resolution
 
     # Base filter parameters (as fractions of page area/dimensions)
-    min_area_pct: float = 0.015   # Minimum panel area (1.5% of page)
+    min_area_pct: float = 0.025   # Minimum panel area (2.5% of page - filters speech bubbles)
     max_area_pct: float = 0.95    # Maximum panel area (exclude full-bleed)
-    min_fill_ratio: float = 0.55  # Minimum contour fill ratio
-    min_rect_px: int = 80         # Minimum panel dimension in pixels
-    min_rect_frac: float = 0.055  # Minimum panel dimension as fraction of page
+    min_fill_ratio: float = 0.50  # Minimum contour fill ratio (relaxed for irregular panels)
+    min_rect_px: int = 40         # Minimum panel dimension in pixels (lowered for low-res detection)
+    min_rect_frac: float = 0.045  # Minimum panel dimension as fraction of page
 
     # Gutter detection parameters
-    min_gutter_px: int = 10       # Minimum gutter thickness in pixels
-    min_gutter_frac: float = 0.012  # Minimum gutter as fraction of block
-    max_gutter_px_frac: float = 0.06  # Maximum gutter as fraction of block
-    gutter_cov_min: float = 0.88  # Minimum brightness coverage for gutter
-    edge_margin_frac: float = 0.03  # Margin from edges for gutter detection
+    min_gutter_px: int = 4        # Minimum gutter thickness in pixels (lowered for thin gutters)
+    min_gutter_frac: float = 0.008  # Minimum gutter as fraction of block (more sensitive)
+    max_gutter_px_frac: float = 0.08  # Maximum gutter as fraction of block (increased)
+    gutter_cov_min: float = 0.82  # Minimum brightness coverage for gutter (relaxed for better detection)
+    edge_margin_frac: float = 0.02  # Margin from edges for gutter detection (reduced)
 
     # Brightness-based split parameters
     light_col_rel: float = 0.12   # Column brightness threshold (relative)
@@ -75,6 +76,7 @@ class DetectorConfig:
             "adaptive_C": self.adaptive_C,
             "morph_kernel": self.morph_kernel,
             "morph_iter": self.morph_iter,
+            "morph_scale_with_dpi": self.morph_scale_with_dpi,
             "min_area_pct": self.min_area_pct,
             "max_area_pct": self.max_area_pct,
             "min_fill_ratio": self.min_fill_ratio,
@@ -127,15 +129,17 @@ PRESETS: Dict[str, tuple[DetectorConfig, AppConfig]] = {
         DetectorConfig(
             adaptive_block=51,
             adaptive_C=5,
-            morph_kernel=7,
-            morph_iter=2,
-            min_rect_px=60,
-            light_col_rel=0.12,
-            light_row_rel=0.12,
-            gutter_cov_min=0.90,
-            min_gutter_px=8,
-            max_gutter_px_frac=0.06,
-            edge_margin_frac=0.03,
+            morph_kernel=5,
+            morph_iter=1,
+            morph_scale_with_dpi=True,
+            min_rect_px=40,
+            min_fill_ratio=0.50,
+            light_col_rel=0.10,
+            light_row_rel=0.10,
+            gutter_cov_min=0.82,
+            min_gutter_px=4,
+            max_gutter_px_frac=0.08,
+            edge_margin_frac=0.02,
             filter_title_rows=True,
             title_row_top_frac=0.20,
             title_row_max_h_frac=0.12,
@@ -150,15 +154,17 @@ PRESETS: Dict[str, tuple[DetectorConfig, AppConfig]] = {
         DetectorConfig(
             adaptive_block=51,
             adaptive_C=4,
-            morph_kernel=7,
-            morph_iter=2,
-            min_rect_px=50,
-            light_col_rel=0.10,
-            light_row_rel=0.10,
-            gutter_cov_min=0.85,
-            min_gutter_px=6,
-            max_gutter_px_frac=0.10,
-            edge_margin_frac=0.02,
+            morph_kernel=5,
+            morph_iter=1,
+            morph_scale_with_dpi=True,
+            min_rect_px=35,
+            min_fill_ratio=0.45,
+            light_col_rel=0.08,
+            light_row_rel=0.08,
+            gutter_cov_min=0.78,
+            min_gutter_px=3,
+            max_gutter_px_frac=0.12,
+            edge_margin_frac=0.015,
             filter_title_rows=True,
             title_row_top_frac=0.18,
             title_row_max_h_frac=0.10,
@@ -174,14 +180,16 @@ PRESETS: Dict[str, tuple[DetectorConfig, AppConfig]] = {
             adaptive_block=41,
             adaptive_C=6,
             morph_kernel=5,
-            morph_iter=2,
-            min_rect_px=50,
-            light_col_rel=0.14,
-            light_row_rel=0.14,
-            gutter_cov_min=0.88,
-            min_gutter_px=6,
-            max_gutter_px_frac=0.06,
-            edge_margin_frac=0.03,
+            morph_iter=1,
+            morph_scale_with_dpi=True,
+            min_rect_px=40,
+            min_fill_ratio=0.50,
+            light_col_rel=0.12,
+            light_row_rel=0.12,
+            gutter_cov_min=0.80,
+            min_gutter_px=4,
+            max_gutter_px_frac=0.08,
+            edge_margin_frac=0.02,
             filter_title_rows=False,
             max_panels_per_page=16,
             reading_rtl=False,

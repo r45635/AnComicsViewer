@@ -72,6 +72,7 @@ class PannablePdfView(QPdfView):
                 self.verticalScrollBar().value() - delta.y()
             )
             self._last_pan_point = event.position().toPoint()
+            self._invalidate_page_cache()  # Invalidate on scroll
             event.accept()
         else:
             super().mouseMoveEvent(event)
@@ -94,7 +95,9 @@ class PannablePdfView(QPdfView):
                 factor = 1.0 + (0.0015 * delta)
                 self.setZoomMode(QPdfView.ZoomMode.Custom)
                 self.setZoomFactor(max(0.05, min(16.0, z * factor)))
+                self._invalidate_page_cache()  # Invalidate on zoom
             return
+        self._invalidate_page_cache()  # Invalidate on scroll
         super().wheelEvent(event)
 
     def _scrollbars_active(self) -> bool:
@@ -139,12 +142,164 @@ class PannablePdfView(QPdfView):
         self._overlay_enabled = bool(enabled)
         self._debug_info = debug_info
         self._show_debug_lines = show_debug
+        self._invalidate_page_cache()  # Invalidate on overlay change
+
+        # Pre-compute page origin before triggering repaint
+        if enabled and rects:
+            from PySide6.QtCore import QTimer
+            # Use a short delay to let the view settle before detection
+            QTimer.singleShot(50, self._precompute_page_origin)
+        else:
+            self.viewport().update()
+
+    def _precompute_page_origin(self) -> None:
+        """Pre-compute page origin for overlay alignment."""
+        cur = self.pageNavigator().currentPage()
+        origin = self._find_page_origin()
+        self._cached_page_origin = (cur, origin[0], origin[1], origin[2])
         self.viewport().update()
 
     # --- Coordinate conversion helpers ---
 
+    def _find_page_origin(self) -> tuple[float, float, float]:
+        """Find the actual page origin and scale by sampling the viewport.
+
+        Returns (x_origin, y_origin, scale_factor) where:
+        - x_origin: left edge of page in viewport coordinates
+        - y_origin: top edge of page (relative to visible area, can be negative)
+        - scale_factor: ratio of actual rendered size to expected size
+        """
+        # Prevent recursive calls during detection
+        if getattr(self, '_detecting_origin', False):
+            return self._fallback_page_origin()
+        self._detecting_origin = True
+
+        try:
+            from PySide6.QtGui import QColor
+
+            doc = self.document()
+            if not doc:
+                return (0.0, 0.0, 1.0)
+
+            cur = self.pageNavigator().currentPage()
+            page_pts = doc.pagePointSize(cur)
+            z = self.zoomFactor()
+
+            # Grab viewport to find page edge
+            viewport = self.viewport()
+            img = viewport.grab().toImage()
+
+            vw = img.width()
+            vh = img.height()
+
+            if vw <= 0 or vh <= 0:
+                return self._fallback_page_origin()
+
+            # Sample background color from corners to check if we can see page edges
+            corners = [(5, 5), (vw - 5, 5), (5, vh - 5), (vw - 5, vh - 5)]
+            bg_samples = []
+            for cx, cy in corners:
+                if 0 <= cx < vw and 0 <= cy < vh:
+                    c = QColor(img.pixel(cx, cy))
+                    bg_samples.append(c.lightness())
+
+            # If all corners are bright (page content), we're zoomed in - use fallback
+            if bg_samples and all(l > 200 for l in bg_samples):
+                # Zoomed in - page fills viewport, use fallback with stored scale
+                return self._fallback_page_origin()
+
+            bg_lightness = min(bg_samples) if bg_samples else 128
+            threshold = min(250, bg_lightness + 30)
+
+            # Find left edge of page by scanning horizontally at viewport center
+            left_edge = 0
+            mid_y = vh // 2
+            for x in range(vw):
+                c = QColor(img.pixel(x, mid_y))
+                if c.lightness() > threshold:
+                    left_edge = x
+                    break
+
+            # Find right edge
+            right_edge = vw - 1
+            for x in range(vw - 1, -1, -1):
+                c = QColor(img.pixel(x, mid_y))
+                if c.lightness() > threshold:
+                    right_edge = x
+                    break
+
+            # Calculate actual width and scale
+            actual_width = right_edge - left_edge
+            expected_width = page_pts.width() * z
+            scale = actual_width / expected_width if expected_width > 0 else 1.0
+
+            # Sanity check scale - if invalid, use stored scale
+            if scale < 0.8 or scale > 1.5:
+                return self._fallback_page_origin()
+
+            # Store successful scale for this page (for use when zoomed in)
+            if not hasattr(self, '_page_scales'):
+                self._page_scales = {}
+            self._page_scales[cur] = scale
+
+            # Find top edge (scan from top at horizontal center)
+            top_edge = 0
+            mid_x = (left_edge + right_edge) // 2
+            for y in range(vh):
+                c = QColor(img.pixel(mid_x, y))
+                if c.lightness() > threshold:
+                    top_edge = y
+                    break
+
+            return (float(left_edge), float(top_edge), scale)
+        finally:
+            self._detecting_origin = False
+
+    def _fallback_page_origin(self) -> tuple[float, float, float]:
+        """Fallback calculation when detection fails."""
+        doc = self.document()
+        if not doc:
+            return (0.0, 0.0, 1.0)
+
+        cur = self.pageNavigator().currentPage()
+        page_pts = doc.pagePointSize(cur)
+        z = self.zoomFactor()
+        margins = self.documentMargins()
+        spacing = self.pageSpacing()
+
+        vw = self.viewport().width()
+
+        # Calculate document width
+        doc_content_w = 0.0
+        for i in range(doc.pageCount()):
+            pw = doc.pagePointSize(i).width() * z
+            if pw > doc_content_w:
+                doc_content_w = pw
+
+        content_w = page_pts.width() * z
+        avail_w = vw - margins.left() - margins.right()
+        doc_x_offset = max(0.0, (avail_w - doc_content_w) / 2.0)
+        page_x_in_doc = (doc_content_w - content_w) / 2.0
+
+        # Y offset
+        page_y_in_doc = 0.0
+        for i in range(cur):
+            prev_pts = doc.pagePointSize(i)
+            page_y_in_doc += prev_pts.height() * z + spacing
+
+        sx = self.horizontalScrollBar().value()
+        sy = self.verticalScrollBar().value()
+
+        x = margins.left() + doc_x_offset + page_x_in_doc - sx
+        y = margins.top() + page_y_in_doc - sy
+
+        return (x, y, 1.0)
+
     def _page_to_view_xy(self, x_pt: float, y_pt: float) -> tuple[float, float]:
-        """Convert page point coordinates to viewport pixels."""
+        """Convert page point coordinates to viewport pixels.
+
+        Uses actual detected page position for accurate overlay alignment.
+        """
         doc = self.document()
         if not doc:
             return (0.0, 0.0)
@@ -153,28 +308,41 @@ class PannablePdfView(QPdfView):
         page_pts = doc.pagePointSize(cur)
         z = self.zoomFactor()
 
-        vw = self.viewport().width()
-        vh = self.viewport().height()
-        content_w = page_pts.width() * z
-        content_h = page_pts.height() * z
+        # Get cached page origin (detection happens via _precompute_page_origin)
+        # If cache miss, use fallback to avoid recursive repaint
+        cache = getattr(self, '_cached_page_origin', None)
+        if cache is None or cache[0] != cur:
+            # Use fallback during paint - precompute will update later
+            origin = self._fallback_page_origin()
+            origin_x, origin_y, scale = origin
+        else:
+            _, origin_x, origin_y, scale = cache
 
-        # Centering padding
-        pad_x = max(0.0, (vw - content_w) / 2.0)
-        pad_y = max(0.0, (vh - content_h) / 2.0)
+        # Apply scale to zoom factor for correct sizing
+        effective_z = z * scale
 
-        # Scroll offset
-        sx = self.horizontalScrollBar().value()
-        sy = self.verticalScrollBar().value()
-
-        x = pad_x + (x_pt * z) - sx
-        y = pad_y + (y_pt * z) - sy
+        # Calculate position relative to detected page origin
+        x = origin_x + (x_pt * effective_z)
+        y = origin_y + (y_pt * effective_z)
         return (x, y)
+
+    def _invalidate_page_cache(self) -> None:
+        """Invalidate cached page origin (call on scroll, zoom, page change)."""
+        self._cached_page_origin = None
 
     def _page_rect_to_view(self, r: QRectF) -> QRectF:
         """Convert page point rectangle to viewport pixels."""
         x, y = self._page_to_view_xy(r.left(), r.top())
-        w = r.width() * self.zoomFactor()
-        h = r.height() * self.zoomFactor()
+
+        # Use detected scale if available
+        z = self.zoomFactor()
+        cache = getattr(self, '_cached_page_origin', None)
+        if cache is not None:
+            _, _, _, scale = cache
+            z *= scale
+
+        w = r.width() * z
+        h = r.height() * z
         return QRectF(x, y, w, h)
 
     # --- Paint overlay ---
