@@ -2,6 +2,8 @@ PySide6==6.8.3
 opencv-python>=4.9
 numpy>=1.24
 Pillow>=10.0
+scipy>=1.10
+pdf2image>=1.16
 
 # Note: on macOS you may need to set QT_QPA_PLATFORM_PLUGIN_PATH to the PySide6 plugins/platforms dir
 # Example:

@@ -341,8 +341,8 @@ def draw_debug(
 
 def detect_panels(
     img_path: str,
-    hsv_lower: Tuple[int, int, int] = None,
-    hsv_upper: Tuple[int, int, int] = None,
+    hsv_lower: Tuple[int, int, int] | None = None,
+    hsv_upper: Tuple[int, int, int] | None = None,
     close_kernel: int = 7,
     dilate_kernel: int = 7,
     dilate_iter: int = 1,

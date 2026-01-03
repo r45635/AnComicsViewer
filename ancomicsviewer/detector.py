@@ -174,14 +174,74 @@ class PanelDetector:
     def _try_detection_routes(
         self, gray: NDArray, L: NDArray, w: int, h: int, page_point_size: QSizeF
     ) -> List[QRectF]:
-        """Simple detection using adaptive threshold (proven to work)."""
+        """Try detection routes: adaptive first, then gutter-based, then hybrid."""
 
-        # Use adaptive threshold route only
+        # Primary route: adaptive threshold (works for Tintin-style with black borders)
         mask = self._adaptive_route(gray)
         rects = self._rects_from_mask(mask, w, h, page_point_size)
         pdebug(f"Adaptive route -> {len(rects)} rects")
         
+        # If adaptive found nothing or too few, try gutter-based detection
+        # (works for color-transition layouts like Grémillet)
+        if len(rects) < 3:
+            pdebug("Adaptive found few panels, trying gutter-based detection...")
+            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size)
+            pdebug(f"Gutter-based route -> {len(gutter_rects)} rects")
+            if len(gutter_rects) > len(rects):
+                rects = gutter_rects
+        elif 3 <= len(rects) < 6:
+            # Moderate success - try to complement with gutter-based
+            # This helps pages like Grémillet p6 and p8
+            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size)
+            pdebug(f"Gutter-based route (hybrid) -> {len(gutter_rects)} rects")
+            
+            # Merge and deduplicate
+            if len(gutter_rects) > len(rects):
+                # Replace with gutter-based if significantly better
+                if len(gutter_rects) - len(rects) >= 2:
+                    rects = gutter_rects
+                else:
+                    # Merge both, remove duplicates
+                    rects = self._merge_overlapping_rects(rects + gutter_rects)
+        
         return rects
+
+    def _merge_overlapping_rects(self, rects: List[QRectF]) -> List[QRectF]:
+        """Merge rectangles that overlap significantly."""
+        if not rects:
+            return []
+        
+        # Sort by area descending
+        rects_sorted = sorted(rects, key=lambda r: r.width() * r.height(), reverse=True)
+        
+        merged = []
+        used = set()
+        
+        for i, rect in enumerate(rects_sorted):
+            if i in used:
+                continue
+            
+            merged.append(rect)
+            
+            # Check for overlaps with remaining rects
+            for j in range(i + 1, len(rects_sorted)):
+                if j in used:
+                    continue
+                
+                other = rects_sorted[j]
+                
+                # Calculate overlap ratio
+                inter_rect = rect.intersected(other)
+                if not inter_rect.isEmpty():
+                    overlap = inter_rect.width() * inter_rect.height()
+                    area_min = min(rect.width() * rect.height(), other.width() * other.height())
+                    overlap_ratio = overlap / area_min if area_min > 0 else 0
+                    
+                    # If significant overlap (>40%), consider it a duplicate
+                    if overlap_ratio > 0.4:
+                        used.add(j)
+        
+        return merged
 
     def _adaptive_route(self, gray: NDArray) -> NDArray:
         """Primary detection route using adaptive threshold.
@@ -242,28 +302,331 @@ class PanelDetector:
         h: int, 
         page_point_size: QSizeF
     ) -> List[QRectF]:
-        """Detect panels by finding white gutters (separations) instead of panels.
+        """Detect panels by finding gutters (white/light separations between panels).
         
-        This inverse approach works better when panels contain lots of text that
-        fragments the standard detection.
+        Better for layouts where panels are separated by color transitions, not black lines.
+        Analyzes horizontal and vertical luminosity projections to find separation lines.
         """
-        # Use high-contrast binarization to find white spaces
-        _, binary = cv2.threshold(L, 220, 255, cv2.THRESH_BINARY)
+        c = self.config
         
-        # Dilate to connect nearby white pixels (gutters)
-        gutter_kernel = np.ones((3, 3), np.uint8)
-        gutters = cv2.dilate(binary, gutter_kernel, iterations=1)
+        # Use luminosity to find bright separations (gutters)
+        # In color layouts, gutters are often white or very light
+        _, binary = cv2.threshold(L, 200, 255, cv2.THRESH_BINARY)
         
-        # Invert: black becomes white (panels), white becomes black (gutters)
-        panels_mask = cv2.bitwise_not(gutters)
+        # Find horizontal and vertical projections of white pixels
+        h_proj = np.sum(binary, axis=1)  # Sum across columns (horizontal lines)
+        v_proj = np.sum(binary, axis=0)  # Sum across rows (vertical lines)
         
-        # Clean up with morphology
-        clean_kernel = np.ones((5, 5), np.uint8)
-        panels_mask = cv2.morphologyEx(panels_mask, cv2.MORPH_CLOSE, clean_kernel, iterations=2)
-        panels_mask = cv2.morphologyEx(panels_mask, cv2.MORPH_OPEN, clean_kernel, iterations=1)
+        # Normalize projections
+        h_proj_norm = h_proj / w if w > 0 else h_proj
+        v_proj_norm = v_proj / h if h > 0 else v_proj
         
-        # Extract rectangles
-        return self._rects_from_mask(panels_mask, w, h, page_point_size)
+        # Find valleys (gutters) - significant dips in luminosity
+        # Use more aggressive thresholding
+        from scipy import signal
+        try:
+            h_smooth = signal.savgol_filter(h_proj_norm, window_length=min(51, len(h_proj_norm)//2 | 1), polyorder=3)
+            v_smooth = signal.savgol_filter(v_proj_norm, window_length=min(51, len(v_proj_norm)//2 | 1), polyorder=3)
+        except:
+            h_smooth = h_proj_norm
+            v_smooth = v_proj_norm
+        
+        # Find extrema (peaks of white space)
+        from scipy.signal import find_peaks
+        try:
+            # Look for peaks in the smoothed projections (high white pixel count = gutters)
+            # Use high percentile to find major gutters (85 gives good balance)
+            h_threshold = np.percentile(h_smooth, 85)
+            v_threshold = np.percentile(v_smooth, 85)
+            h_peaks, _ = find_peaks(h_smooth, height=h_threshold, distance=40, prominence=0.015)
+            v_peaks, _ = find_peaks(v_smooth, height=v_threshold, distance=40, prominence=0.015)
+        except:
+            h_peaks = np.where(h_smooth > np.percentile(h_smooth, 85))[0]
+            v_peaks = np.where(v_smooth > np.percentile(v_smooth, 85))[0]
+        
+        # Limit to max 10 horizontal and 10 vertical gutters
+        if len(h_peaks) > 10:
+            peak_heights = h_smooth[h_peaks]
+            top_indices = np.argsort(peak_heights)[-10:]
+            h_peaks = h_peaks[np.sort(top_indices)]
+        if len(v_peaks) > 10:
+            peak_heights = v_smooth[v_peaks]
+            top_indices = np.argsort(peak_heights)[-10:]
+            v_peaks = v_peaks[np.sort(top_indices)]
+            v_peaks = np.where(v_smooth > np.percentile(v_smooth, 60))[0]
+        
+        # Group peaks into gutter regions
+        h_lines = self._group_gutter_lines(h_peaks)
+        v_lines = self._group_gutter_lines(v_peaks)
+        
+        pdebug(f"Found {len(h_lines)} horizontal gutters, {len(v_lines)} vertical gutters")
+        
+        # Generate panels from gutter intersections
+        if h_lines and v_lines:
+            rects = self._panels_from_gutters(h_lines, v_lines, w, h, page_point_size)
+        else:
+            rects = []
+
+        # If very bright page and too few panels, run a contrast-focused local pass
+        mean_L = float(np.mean(L)) if L is not None else 0.0
+        if len(rects) < 6 and mean_L > 180.0:
+            pdebug(f"Bright page (L_mean={mean_L:.1f}) with few gutters -> contrast pass")
+            contrast_mask = self._contrast_mask(L)
+            contrast_rects = self._rects_from_mask(contrast_mask, w, h, page_point_size)
+            pdebug(f"Contrast mask generated {len(contrast_rects)} rects from mask")
+            if contrast_rects:
+                rects = self._merge_overlapping_rects(rects + contrast_rects)
+                pdebug(f"After merge: {len(rects)} rects")
+
+            # Targeted bottom-band scan to recover a missing last-row panel
+            band_rect = self._targeted_bottom_band(L, rects, w, h, page_point_size)
+            if band_rect is not None:
+                rects = self._merge_overlapping_rects(rects + [band_rect])
+                pdebug(f"Bottom-band scan recovered 1 rect -> total {len(rects)} rects")
+            else:
+                pdebug("Bottom-band scan found no new panel")
+        
+        return rects
+
+    def _contrast_mask(self, L: NDArray) -> NDArray:
+        """Enhance contrast and binarize for bright pages without dark borders."""
+        # CLAHE to boost local contrast - more aggressive for bright pages
+        clahe = cv2.createCLAHE(clipLimit=4.5, tileGridSize=(8, 8))
+        L_eq = clahe.apply(L)
+
+        # Adaptive threshold: find darker regions (panels) against bright background
+        # Using THRESH_BINARY (not INV) so panels become white in mask
+        th = cv2.adaptiveThreshold(
+            L_eq,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,  # NOT inverted - panels are darker
+            51,
+            -8,  # More aggressive (was -5)
+        )
+
+        # Slightly larger close to reconnect faint borders
+        kernel = np.ones((5, 5), np.uint8)
+        return cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+    def _targeted_bottom_band(
+        self, L: NDArray, rects: List[QRectF], w: int, h: int, page_point_size: QSizeF
+    ) -> Optional[QRectF]:
+        """Scan the lower band to recover a missing bottom-row panel on bright pages."""
+        # Trigger only if very few panels (likely missing one) and page is tall enough
+        if h < 500 or len(rects) >= 4:
+            if self.config.debug:
+                pdebug(f"[band] skip: h={h} rects={len(rects)}")
+            return None
+
+        scale_x = w / float(page_point_size.width()) if page_point_size.width() > 0 else 1.0
+        scale_y = h / float(page_point_size.height()) if page_point_size.height() > 0 else 1.0
+
+        # Find the lowest point of existing rects
+        # Scan from there down, not from a fixed percentage
+        if rects:
+            max_y = max(int(r.bottom() * scale_y) for r in rects)
+        else:
+            max_y = int(0.4 * h)  # Default to middle if no rects
+
+        # Use a band starting ~20px below the last rect
+        band_start = min(max_y + 20, int(0.7 * h))
+        band = L[band_start:, :]
+
+        if self.config.debug:
+            pdebug(f"[band] max_y from rects={max_y}, band_start={band_start}")
+
+        # Very permissive band coverage check: only skip if nearly completely covered
+        covered = 0.0
+        band_area = w * (h - band_start)
+        for r in rects:
+            rx0 = int(r.left() * scale_x)
+            ry0 = int(r.top() * scale_y)
+            rx1 = int((r.left() + r.width()) * scale_x)
+            ry1 = int((r.top() + r.height()) * scale_y)
+            inter_top = max(band_start, ry0)
+            inter_bottom = min(h, ry1)
+            if inter_bottom > inter_top:
+                inter_h = inter_bottom - inter_top
+                inter_w = max(0, rx1 - rx0)
+                inter_area = inter_h * inter_w
+                covered += inter_area
+        coverage = covered / band_area if band_area > 0 else 0.0
+        if self.config.debug:
+            pdebug(f"[band] coverage={coverage:.2f} band_area={band_area}")
+        # Only skip if COMPLETELY covered
+        if coverage > 0.95:
+            if self.config.debug:
+                pdebug(f"[band] skip: band completely covered")
+            return None
+
+        # Enhance contrast locally with CLAHE
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        band_eq = clahe.apply(band)
+
+        # Adaptive threshold tuned for light-on-white panel edges
+        th = cv2.adaptiveThreshold(
+            band_eq,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV,
+            35,
+            -5,
+        )
+        th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
+
+        contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if self.config.debug:
+            pdebug(f"[band] found {len(contours)} contours after threshold")
+        if not contours:
+            return None
+
+        # Keep candidates that are NOT the entire band (size filter)
+        page_area = float(w * h)
+        band_w = w
+        band_h = h - band_start
+        max_area_for_panel = 0.35 * page_area  # Don't accept entire band
+        candidates = []
+        for cnt in contours:
+            # Robust rotated bounding box, clamped to band bounds
+            rect = cv2.minAreaRect(cnt)
+            box = cv2.boxPoints(rect)
+            box = np.intp(box)
+            xs, ys = box[:, 0], box[:, 1]
+            x0, x1 = int(xs.min()), int(xs.max())
+            y0, y1 = int(ys.min()), int(ys.max())
+
+            # Clamp to band image bounds
+            x0 = max(0, x0)
+            y0 = max(0, y0)
+            x1 = min(band_w, x1)
+            y1 = min(band_h, y1)
+            cw = max(1, x1 - x0)
+            ch = max(1, y1 - y0)
+            area = cw * ch
+
+            # Check for entire-band pattern more carefully
+            is_full_width = cw >= band_w * 0.90
+            is_large_height = ch >= band_h * 0.80  # Slightly relaxed
+            if is_full_width and is_large_height:
+                if self.config.debug:
+                    pdebug(f"[band] skip contour (entire band): {cw}x{ch} vs band {band_w}x{band_h}")
+                continue
+            # Be more permissive on area, but still reasonable
+            if area < 0.008 * page_area or area > max_area_for_panel:
+                continue
+            # Convert y back to full image coordinates
+            y_full = y0 + band_start
+            candidates.append((area, x0, y_full, cw, ch))
+
+        if self.config.debug:
+            pdebug(f"[band] candidates after filter: {len(candidates)}")
+        if not candidates:
+            return None
+
+        # Select the largest candidate
+        candidates.sort(reverse=True)
+        top_area, x, y_full, cw, ch = candidates[0]
+        if self.config.debug:
+            pdebug(f"[band] selected: area={top_area/page_area:.3f} pos=({x},{y_full}) size={cw}x{ch}")
+
+        # Convert to page points
+        rect = QRectF(x / scale_x, y_full / scale_y, cw / scale_x, ch / scale_y)
+
+        # Reject if heavily overlapping an existing rect (duplicate)
+        for r in rects:
+            inter = r.intersected(rect)
+            if not inter.isEmpty():
+                overlap = inter.width() * inter.height()
+                min_area = min(r.width() * r.height(), rect.width() * rect.height())
+                if min_area > 0 and overlap / min_area > 0.3:  # More permissive
+                    if self.config.debug:
+                        pdebug(f"[band] rejected: overlap={overlap/min_area:.2f} with existing rect")
+                    return None
+
+        if self.config.debug:
+            pdebug(f"[band] returning candidate rect")
+        return rect
+
+    def _group_gutter_lines(self, gutter_pixels: NDArray) -> List[Tuple[int, int]]:
+        """Group consecutive gutter pixels into regions."""
+        if len(gutter_pixels) == 0:
+            return []
+        
+        lines = []
+        start = gutter_pixels[0]
+        prev = start
+        
+        for pixel in gutter_pixels[1:]:
+            if pixel > prev + 1:
+                # Gap found, save region
+                lines.append((start, prev))
+                start = pixel
+            prev = pixel
+        
+        lines.append((start, prev))
+        return lines
+
+    def _panels_from_gutters(
+        self, 
+        h_lines: List[Tuple[int, int]], 
+        v_lines: List[Tuple[int, int]], 
+        w: int, 
+        h: int, 
+        page_point_size: QSizeF
+    ) -> List[QRectF]:
+        """Generate panel rectangles from gutter positions."""
+        rects = []
+        scale = w / float(page_point_size.width()) if page_point_size.width() > 0 else 1.0
+        
+        # Add page boundaries as "gutters"
+        h_boundaries = [(0, 0)] + h_lines + [(h-1, h-1)]
+        v_boundaries = [(0, 0)] + v_lines + [(w-1, w-1)]
+        
+        # Extract panels from gutter grid
+        # Relaxed minimum to allow smaller panels (e.g., third column on Grémillet p6)
+        # Use 8% instead of 12% to catch more panels while staying reasonable
+        min_panel_w = max(self.config.min_rect_px, int(0.08 * w))
+        min_panel_h = max(self.config.min_rect_px, int(0.08 * h))
+        
+        if self.config.debug:
+            pdebug(f"[gutters] h_boundaries={len(h_boundaries)} v_boundaries={len(v_boundaries)}")
+            pdebug(f"[gutters] min_panel_w={min_panel_w} min_panel_h={min_panel_h}")
+        
+        for i in range(len(h_boundaries) - 1):
+            y_start = h_boundaries[i][1] + 1
+            y_end = h_boundaries[i+1][0]
+            h_cell = y_end - y_start
+            if h_cell < min_panel_h:
+                if self.config.debug and i < 3:
+                    pdebug(f"[gutters] skip h-cell {i}: height {h_cell} < {min_panel_h}")
+                continue
+                
+            for j in range(len(v_boundaries) - 1):
+                x_start = v_boundaries[j][1] + 1
+                x_end = v_boundaries[j+1][0]
+                w_cell = x_end - x_start
+                if w_cell < min_panel_w:
+                    if self.config.debug and j < 3:
+                        pdebug(f"[gutters] skip v-cell {j}: width {w_cell} < {min_panel_w}")
+                    continue
+                
+                # Create panel rectangle
+                rect_w = x_end - x_start
+                rect_h = y_end - y_start
+                
+                # Convert to page point coordinates
+                x_pts = x_start / scale
+                y_pts = y_start / scale
+                w_pts = rect_w / scale
+                h_pts = rect_h / scale
+                
+                rects.append(QRectF(x_pts, y_pts, w_pts, h_pts))
+        
+        if self.config.debug:
+            pdebug(f"[gutters] generated {len(rects)} panels from gutter grid")
+        
+        return rects
 
     def _rects_from_mask(
         self, mask: NDArray, w: int, h: int, page_point_size: QSizeF
@@ -288,7 +651,21 @@ class PanelDetector:
 
         rects: List[QRectF] = []
         for contour in contours:
-            x, y, cw, ch = cv2.boundingRect(contour)
+            # Rotated bbox then clamp to image bounds to avoid negative/overflow
+            rect = cv2.minAreaRect(contour)
+            box = cv2.boxPoints(rect)
+            box = np.intp(box)
+            xs, ys = box[:, 0], box[:, 1]
+            x0, x1 = int(xs.min()), int(xs.max())
+            y0, y1 = int(ys.min()), int(ys.max())
+
+            x0 = max(0, x0)
+            y0 = max(0, y0)
+            x1 = min(w, x1)
+            y1 = min(h, y1)
+
+            cw = max(1, x1 - x0)
+            ch = max(1, y1 - y0)
 
             # Area filter (relaxed)
             area_px = cw * ch
@@ -296,12 +673,12 @@ class PanelDetector:
             if area_pct < min_area_initial or area_pct > c.max_area_pct:
                 continue
 
-            # Fill ratio filter (relaxed)
+            # Fill ratio filter (relaxed for bright pages)
             contour_area = float(cv2.contourArea(contour))
             if contour_area <= 0:
                 continue
             fill = contour_area / float(area_px)
-            if fill < (c.min_fill_ratio * 0.8):  # 20% more permissive
+            if fill < (c.min_fill_ratio * 0.8):  # 20% more permissive (standard)
                 continue
 
             # Size filter (relaxed)
@@ -309,8 +686,8 @@ class PanelDetector:
                 continue
 
             # Convert to page points
-            px = x / scale
-            py = y / scale
+            px = x0 / scale
+            py = y0 / scale
             pw = cw / scale
             ph = ch / scale
             rects.append(QRectF(px, py, pw, ph))
