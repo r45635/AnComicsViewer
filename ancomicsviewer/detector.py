@@ -40,6 +40,27 @@ if HAS_NUMPY:
 
 
 @dataclass
+class PanelRegion:
+    """Represents a detected panel region with multiple representations.
+    
+    Used in freeform detection for complex layouts (parallelograms, tinted backgrounds, etc.)
+    """
+    contour: NDArray          # Original contour (Nx1x2)
+    poly: NDArray             # Simplified polygon approximation
+    bbox: Tuple[int, int, int, int]  # Axis-aligned bounding box (x, y, w, h)
+    obb: NDArray              # Oriented bounding box (4 points from minAreaRect)
+    area: float               # Contour area
+    fill_ratio: float         # area / (bbox_w * bbox_h)
+    touches_border: bool      # Whether region touches image border
+    centroid: Tuple[float, float]  # (cx, cy)
+    
+    def to_qrectf(self, scale: float) -> QRectF:
+        """Convert bbox to QRectF in page points."""
+        x, y, w, h = self.bbox
+        return QRectF(x / scale, y / scale, w / scale, h / scale)
+
+
+@dataclass
 class DebugInfo:
     """Debug information from detection pass."""
     vertical_splits: List[Tuple[float, float, float, float]]  # (x, y, w, h) in page points
@@ -174,7 +195,7 @@ class PanelDetector:
     def _try_detection_routes(
         self, gray: NDArray, L: NDArray, w: int, h: int, page_point_size: QSizeF
     ) -> List[QRectF]:
-        """Try detection routes: adaptive first, then gutter-based, then hybrid."""
+        """Try detection routes: adaptive first, then gutter-based, then hybrid, finally freeform fallback."""
 
         # Primary route: adaptive threshold (works for Tintin-style with black borders)
         mask = self._adaptive_route(gray)
@@ -203,6 +224,36 @@ class PanelDetector:
                 else:
                     # Merge both, remove duplicates
                     rects = self._merge_overlapping_rects(rects + gutter_rects)
+        
+        # Check if freeform fallback is needed
+        if self.config.use_freeform_fallback:
+            page_area = page_point_size.width() * page_point_size.height()
+            needs_freeform = False
+            reason = ""
+            
+            if len(rects) < 2:
+                needs_freeform = True
+                reason = "too few panels detected"
+            elif len(rects) > 0:
+                max_rect_area = max(r.width() * r.height() for r in rects)
+                max_ratio = max_rect_area / page_area
+                if max_ratio > 0.50:  # Lowered from 0.60 to catch more cases
+                    needs_freeform = True
+                    reason = f"single large panel covering {max_ratio*100:.1f}% of page"
+            
+            if needs_freeform:
+                pdebug(f"[Freeform] Triggering fallback: {reason}")
+                
+                # Convert grayscale to BGR for freeform processing
+                gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                
+                freeform_rects = self._freeform_detection(gray_bgr, w, h, page_point_size)
+                
+                if len(freeform_rects) > len(rects):
+                    pdebug(f"[Freeform] Replacing {len(rects)} rects with {len(freeform_rects)} freeform rects")
+                    rects = freeform_rects
+                else:
+                    pdebug(f"[Freeform] Keeping original {len(rects)} rects (freeform found {len(freeform_rects)})")
         
         return rects
 
@@ -242,6 +293,108 @@ class PanelDetector:
                         used.add(j)
         
         return merged
+
+    def _freeform_detection(self, img_bgr: NDArray, w: int, h: int, 
+                           page_point_size: QSizeF) -> List[QRectF]:
+        """Freeform panel detection using watershed segmentation.
+        
+        Works on complex layouts with parallelograms, tinted backgrounds, etc.
+        
+        Args:
+            img_bgr: Image in BGR format
+            w, h: Image dimensions
+            page_point_size: Page dimensions in points
+            
+        Returns:
+            List of panel rectangles
+        """
+        # 1. Estimate background color
+        bg_lab = estimate_background_color_lab(img_bgr)
+        
+        # 2. Create background mask
+        debug_paths = {}
+        if self.config.debug:
+            import os
+            debug_dir = "debug_output"
+            os.makedirs(debug_dir, exist_ok=True)
+            debug_paths = {
+                'bg_mask': os.path.join(debug_dir, 'freeform_bg_mask.png'),
+                'mask_fg': os.path.join(debug_dir, 'freeform_mask_fg.png'),
+                'sure_fg': os.path.join(debug_dir, 'freeform_sure_fg.png'),
+                'markers': os.path.join(debug_dir, 'freeform_markers.png'),
+            }
+        
+        mask_bg = make_background_mask(
+            img_bgr, bg_lab, 
+            delta=self.config.bg_delta,
+            debug_path=debug_paths.get('bg_mask')
+        )
+        
+        # 3. Watershed segmentation
+        markers = segment_panels_watershed(
+            img_bgr, mask_bg,
+            sure_fg_ratio=self.config.sure_fg_ratio,
+            debug_paths={k: v for k, v in debug_paths.items() if k != 'bg_mask'}
+        )
+        
+        # 4. Extract regions
+        regions = extract_panel_regions(
+            markers, (h, w),
+            min_area_ratio=self.config.min_area_ratio_freeform,
+            max_area_ratio=self.config.max_area_pct,
+            min_fill_ratio=self.config.min_fill_ratio_freeform,
+            approx_eps_ratio=self.config.approx_eps_ratio
+        )
+        
+        pdebug(f"[Freeform] Extracted {len(regions)} regions before merge")
+        
+        # 5. Merge overlapping regions
+        regions = merge_overlapping_regions(regions, iou_thr=self.config.iou_merge_thr)
+        
+        pdebug(f"[Freeform] After merge: {len(regions)} regions")
+        
+        # 6. Sort in reading order
+        regions = sort_reading_order(regions, rtl=self.config.reading_rtl)
+        
+        # 7. Convert to QRectF
+        scale = (w / page_point_size.width())  # pixels per point
+        rects = [region.to_qrectf(scale) for region in regions]
+        
+        # 8. Save debug visualization if enabled
+        if self.config.debug and debug_paths:
+            self._save_freeform_debug(img_bgr, regions, debug_paths)
+        
+        return rects
+    
+    def _save_freeform_debug(self, img_bgr: NDArray, regions: List[PanelRegion], 
+                            debug_paths: dict) -> None:
+        """Save debug visualization of detected regions."""
+        import os
+        debug_dir = "debug_output"
+        
+        # Draw contours, bboxes, and OBBs
+        debug_img = img_bgr.copy()
+        
+        for i, region in enumerate(regions):
+            # Draw contour in green
+            cv2.drawContours(debug_img, [region.contour], -1, (0, 255, 0), 2)
+            
+            # Draw bbox in blue
+            x, y, bw, bh = region.bbox
+            cv2.rectangle(debug_img, (x, y), (x + bw, y + bh), (255, 0, 0), 2)
+            
+            # Draw OBB in red
+            cv2.drawContours(debug_img, [region.obb], -1, (0, 0, 255), 2)
+            
+            # Draw index
+            cx, cy = region.centroid
+            cv2.putText(debug_img, str(i + 1), (int(cx) - 10, int(cy) + 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+        
+        out_path = os.path.join(debug_dir, 'freeform_regions_contours.png')
+        cv2.imwrite(out_path, debug_img)
+        pdebug(f"[Freeform] Saved regions visualization: {out_path}")
+
 
     def _adaptive_route(self, gray: NDArray) -> NDArray:
         """Primary detection route using adaptive threshold.
@@ -1180,3 +1333,403 @@ class PanelDetector:
             pdebug(f"  Fragment reduction: {len(fragments)} → {len(merged)}")
         
         return result
+
+
+# ========== Freeform Detection Functions (for complex layouts) ==========
+
+def estimate_background_color_lab(img_bgr: NDArray, sample_pct: float = 0.03) -> Tuple[float, float, float]:
+    """Estimate background color by sampling image borders in Lab color space.
+    
+    Args:
+        img_bgr: Input image in BGR format
+        sample_pct: Percentage of image dimensions to use for border sampling
+        
+    Returns:
+        Tuple of (L, a, b) median values
+    """
+    h, w = img_bgr.shape[:2]
+    border_size = max(int(min(h, w) * sample_pct), 5)
+    
+    # Sample borders: top, bottom, left, right
+    samples = []
+    samples.append(img_bgr[0:border_size, :])  # Top
+    samples.append(img_bgr[h-border_size:h, :])  # Bottom
+    samples.append(img_bgr[:, 0:border_size])  # Left
+    samples.append(img_bgr[:, w-border_size:w])  # Right
+    
+    # Concatenate all border pixels
+    border_pixels = np.vstack([s.reshape(-1, 3) for s in samples])
+    
+    # Convert to Lab
+    border_lab = cv2.cvtColor(border_pixels.reshape(1, -1, 3).astype(np.uint8), cv2.COLOR_BGR2Lab)
+    border_lab = border_lab.reshape(-1, 3).astype(np.float32)
+    
+    # Compute median (robust to outliers like text/drawings on edges)
+    L_med = np.median(border_lab[:, 0])
+    a_med = np.median(border_lab[:, 1])
+    b_med = np.median(border_lab[:, 2])
+    
+    pdebug(f"[Freeform] Background Lab: L={L_med:.1f}, a={a_med:.1f}, b={b_med:.1f}")
+    return (L_med, a_med, b_med)
+
+
+def make_background_mask(img_bgr: NDArray, bg_lab: Tuple[float, float, float], 
+                         delta: float = 12.0, debug_path: Optional[str] = None) -> NDArray:
+    """Create binary mask of background pixels based on Lab distance.
+    
+    Args:
+        img_bgr: Input image in BGR format
+        bg_lab: Background color in Lab (L, a, b)
+        delta: Maximum Lab distance to be considered background
+        debug_path: Optional path to save debug mask image
+        
+    Returns:
+        Binary mask (uint8, 255 = background, 0 = foreground)
+    """
+    # Convert image to Lab
+    img_lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2Lab).astype(np.float32)
+    
+    # Compute Euclidean distance to background color
+    bg_array = np.array(bg_lab, dtype=np.float32)
+    dist = np.linalg.norm(img_lab - bg_array, axis=2)
+    
+    # Threshold: pixels close to background
+    mask_bg = (dist < delta).astype(np.uint8) * 255
+    
+    # Morphology to clean up noise
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask_bg = cv2.morphologyEx(mask_bg, cv2.MORPH_OPEN, kernel_open)
+    
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    mask_bg = cv2.morphologyEx(mask_bg, cv2.MORPH_CLOSE, kernel_close)
+    
+    bg_pct = (np.sum(mask_bg == 255) / mask_bg.size) * 100
+    pdebug(f"[Freeform] Background mask: {bg_pct:.1f}% of image, delta={delta}")
+    
+    if debug_path:
+        cv2.imwrite(debug_path, mask_bg)
+        pdebug(f"[Freeform] Saved background mask: {debug_path}")
+    
+    return mask_bg
+
+
+def segment_panels_watershed(img_bgr: NDArray, mask_bg: NDArray, 
+                             sure_fg_ratio: float = 0.45,
+                             debug_paths: Optional[dict] = None) -> NDArray:
+    """Segment panels using watershed algorithm.
+    
+    Args:
+        img_bgr: Input image in BGR format
+        mask_bg: Background mask (255 = background)
+        sure_fg_ratio: Ratio of max distance for sure foreground
+        debug_paths: Optional dict with keys 'mask_fg', 'sure_fg', 'markers'
+        
+    Returns:
+        Labeled regions (int32, 0 = background, 1+ = regions)
+    """
+    # Foreground = NOT background
+    mask_fg = cv2.bitwise_not(mask_bg)
+    
+    # Clean foreground mask
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask_fg = cv2.morphologyEx(mask_fg, cv2.MORPH_OPEN, kernel, iterations=1)
+    mask_fg = cv2.morphologyEx(mask_fg, cv2.MORPH_CLOSE, kernel, iterations=2)
+    
+    if debug_paths and 'mask_fg' in debug_paths:
+        cv2.imwrite(debug_paths['mask_fg'], mask_fg)
+        pdebug(f"[Freeform] Saved foreground mask: {debug_paths['mask_fg']}")
+    
+    # Sure background: dilate background mask
+    sure_bg = cv2.dilate(mask_bg, kernel, iterations=2)
+    
+    # Sure foreground: distance transform + threshold
+    dist = cv2.distanceTransform(mask_fg, cv2.DIST_L2, 5)
+    dist_max = dist.max()
+    threshold_val = sure_fg_ratio * dist_max
+    _, sure_fg = cv2.threshold(dist, threshold_val, 255, cv2.THRESH_BINARY)
+    sure_fg = sure_fg.astype(np.uint8)
+    
+    pdebug(f"[Freeform] Distance transform max={dist_max:.1f}, threshold={threshold_val:.1f}")
+    
+    if debug_paths and 'sure_fg' in debug_paths:
+        cv2.imwrite(debug_paths['sure_fg'], sure_fg)
+        pdebug(f"[Freeform] Saved sure foreground: {debug_paths['sure_fg']}")
+    
+    # Unknown region
+    sure_bg_bin = (sure_bg == 255).astype(np.uint8)
+    sure_fg_bin = (sure_fg == 255).astype(np.uint8)
+    unknown = cv2.subtract(sure_bg_bin, sure_fg_bin)
+    
+    # Create markers
+    n_labels, markers = cv2.connectedComponents(sure_fg)
+    pdebug(f"[Freeform] Connected components found: {n_labels - 1}")
+    
+    # Add 1 to all labels (so background is not 0)
+    markers = markers + 1
+    
+    # Mark unknown regions as 0
+    markers[unknown == 1] = 0
+    
+    if debug_paths and 'markers' in debug_paths:
+        # Normalize markers for visualization
+        markers_vis = ((markers.astype(np.float32) / markers.max()) * 255).astype(np.uint8)
+        cv2.imwrite(debug_paths['markers'], markers_vis)
+        pdebug(f"[Freeform] Saved markers: {debug_paths['markers']}")
+    
+    # Apply watershed
+    markers = cv2.watershed(img_bgr, markers)
+    
+    # Count final regions (excluding background and borders)
+    unique_labels = np.unique(markers)
+    valid_labels = unique_labels[(unique_labels > 1)]
+    pdebug(f"[Freeform] Watershed produced {len(valid_labels)} regions")
+    
+    return markers
+
+
+def extract_panel_regions(markers: NDArray, img_shape: Tuple[int, int],
+                          min_area_ratio: float = 0.01,
+                          max_area_ratio: float = 0.95,
+                          min_fill_ratio: float = 0.25,
+                          approx_eps_ratio: float = 0.01) -> List[PanelRegion]:
+    """Extract and filter panel regions from watershed markers.
+    
+    Args:
+        markers: Watershed output (labels)
+        img_shape: Image dimensions (h, w)
+        min_area_ratio: Minimum region area as fraction of image
+        max_area_ratio: Maximum region area as fraction of image
+        min_fill_ratio: Minimum fill ratio (area / bbox_area)
+        approx_eps_ratio: Epsilon for polygon approximation
+        
+    Returns:
+        List of filtered PanelRegion objects
+    """
+    h, w = img_shape
+    img_area = h * w
+    min_area = img_area * min_area_ratio
+    max_area = img_area * max_area_ratio
+    
+    regions = []
+    unique_labels = np.unique(markers)
+    
+    for label in unique_labels:
+        if label <= 1:  # Skip background (1) and borders (-1)
+            continue
+        
+        # Create mask for this region
+        region_mask = (markers == label).astype(np.uint8) * 255
+        
+        # Find contours
+        contours, _ = cv2.findContours(region_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
+            continue
+        
+        # Take largest contour
+        contour = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(contour)
+        
+        # Filter by area
+        if area < min_area or area > max_area:
+            continue
+        
+        # Compute bbox
+        x, y, bw, bh = cv2.boundingRect(contour)
+        bbox = (x, y, bw, bh)
+        bbox_area = bw * bh
+        
+        if bbox_area == 0:
+            continue
+        
+        fill_ratio = area / bbox_area
+        
+        # Filter by fill ratio
+        if fill_ratio < min_fill_ratio:
+            continue
+        
+        # Check if touches border
+        touches_border = (x == 0 or y == 0 or x + bw >= w or y + bh >= h)
+        
+        # Compute OBB (oriented bounding box)
+        rect = cv2.minAreaRect(contour)
+        obb = cv2.boxPoints(rect)
+        obb = np.intp(obb)
+        
+        # Polygon approximation
+        perimeter = cv2.arcLength(contour, True)
+        epsilon = approx_eps_ratio * perimeter
+        poly = cv2.approxPolyDP(contour, epsilon, True)
+        
+        # Compute centroid
+        M = cv2.moments(contour)
+        if M["m00"] != 0:
+            cx = M["m10"] / M["m00"]
+            cy = M["m01"] / M["m00"]
+        else:
+            cx, cy = x + bw / 2, y + bh / 2
+        
+        region = PanelRegion(
+            contour=contour,
+            poly=poly,
+            bbox=bbox,
+            obb=obb,
+            area=area,
+            fill_ratio=fill_ratio,
+            touches_border=touches_border,
+            centroid=(cx, cy)
+        )
+        
+        regions.append(region)
+    
+    pdebug(f"[Freeform] Extracted {len(regions)} regions after filtering")
+    return regions
+
+
+def merge_overlapping_regions(regions: List[PanelRegion], iou_thr: float = 0.20) -> List[PanelRegion]:
+    """Merge regions with significant overlap.
+    
+    Args:
+        regions: List of PanelRegion objects
+        iou_thr: IoU threshold for merging
+        
+    Returns:
+        List of merged regions
+    """
+    if len(regions) <= 1:
+        return regions
+    
+    merged = []
+    used = set()
+    
+    for i, reg in enumerate(regions):
+        if i in used:
+            continue
+        
+        # Try to merge with other regions
+        to_merge = [reg]
+        to_merge_indices = {i}
+        
+        for j, other in enumerate(regions):
+            if j <= i or j in used:
+                continue
+            
+            # Compute IoU on bboxes
+            x1, y1, w1, h1 = reg.bbox
+            x2, y2, w2, h2 = other.bbox
+            
+            xi = max(x1, x2)
+            yi = max(y1, y2)
+            wi = max(0, min(x1 + w1, x2 + w2) - xi)
+            hi = max(0, min(y1 + h1, y2 + h2) - yi)
+            
+            inter_area = wi * hi
+            union_area = w1 * h1 + w2 * h2 - inter_area
+            
+            if union_area == 0:
+                continue
+            
+            iou = inter_area / union_area
+            
+            if iou > iou_thr:
+                to_merge.append(other)
+                to_merge_indices.add(j)
+        
+        if len(to_merge) > 1:
+            # Merge contours
+            all_points = np.vstack([r.contour for r in to_merge])
+            hull = cv2.convexHull(all_points)
+            
+            # Recompute properties
+            area = cv2.contourArea(hull)
+            x, y, bw, bh = cv2.boundingRect(hull)
+            bbox = (x, y, bw, bh)
+            fill_ratio = area / (bw * bh) if (bw * bh) > 0 else 0
+            
+            rect = cv2.minAreaRect(hull)
+            obb = cv2.boxPoints(rect)
+            obb = np.intp(obb)
+            
+            perimeter = cv2.arcLength(hull, True)
+            poly = cv2.approxPolyDP(hull, 0.01 * perimeter, True)
+            
+            M = cv2.moments(hull)
+            if M["m00"] != 0:
+                cx = M["m10"] / M["m00"]
+                cy = M["m01"] / M["m00"]
+            else:
+                cx, cy = x + bw / 2, y + bh / 2
+            
+            merged_reg = PanelRegion(
+                contour=hull,
+                poly=poly,
+                bbox=bbox,
+                obb=obb,
+                area=area,
+                fill_ratio=fill_ratio,
+                touches_border=False,  # Re-check if needed
+                centroid=(cx, cy)
+            )
+            
+            merged.append(merged_reg)
+            used.update(to_merge_indices)
+            
+            pdebug(f"[Freeform] Merged {len(to_merge)} regions")
+        else:
+            merged.append(reg)
+            used.add(i)
+    
+    return merged
+
+
+def sort_reading_order(regions: List[PanelRegion], rtl: bool = False) -> List[PanelRegion]:
+    """Sort regions in reading order (top to bottom, left to right or right to left).
+    
+    Args:
+        regions: List of PanelRegion objects
+        rtl: Right-to-left reading order
+        
+    Returns:
+        Sorted list of regions
+    """
+    if not regions:
+        return regions
+    
+    # Sort by centroid Y first
+    sorted_by_y = sorted(regions, key=lambda r: r.centroid[1])
+    
+    # Compute median height for grouping into rows
+    heights = [r.bbox[3] for r in regions]
+    median_height = np.median(heights) if heights else 100
+    
+    # Group into rows
+    rows = []
+    current_row = []
+    current_y = None
+    
+    for reg in sorted_by_y:
+        cy = reg.centroid[1]
+        
+        if current_y is None:
+            current_y = cy
+            current_row = [reg]
+        elif abs(cy - current_y) < 0.5 * median_height:
+            # Same row
+            current_row.append(reg)
+        else:
+            # New row
+            rows.append(current_row)
+            current_row = [reg]
+            current_y = cy
+    
+    if current_row:
+        rows.append(current_row)
+    
+    # Sort each row by X (left to right or right to left)
+    result = []
+    for row in rows:
+        row_sorted = sorted(row, key=lambda r: r.centroid[0], reverse=rtl)
+        result.extend(row_sorted)
+    
+    pdebug(f"[Freeform] Sorted {len(regions)} regions into {len(rows)} rows")
+    return result

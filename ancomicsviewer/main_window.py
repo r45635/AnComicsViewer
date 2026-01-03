@@ -370,12 +370,17 @@ class ComicsView(QMainWindow):
         # Release previous document
         if self.document is not None:
             try:
-                self.view.setDocument(QPdfDocument())
+                # First disconnect from view
+                self.view.setDocument(None)
+                # Clear cache before closing document
+                self._panel_cache.clear()
+                # Close and delete
                 self.document.close()
                 self.document.deleteLater()
-            except Exception:
-                pass
-            self.document = None
+                self.document = None
+            except Exception as e:
+                pdebug(f"Error releasing document: {e}")
+                self.document = None
 
         doc = QPdfDocument(self)
         err = doc.load(path)
@@ -425,7 +430,7 @@ class ComicsView(QMainWindow):
 
     def export_current_page(self) -> None:
         """Export current page as PNG."""
-        if not self.document:
+        if not self.document or self.document.status() != self.document.Status.Ready:
             QMessageBox.warning(self, "Export Error", "No PDF loaded.")
             return
 
@@ -597,6 +602,10 @@ class ComicsView(QMainWindow):
         self._panel_cache.set_config_hash(config_hash)
 
         if not force and cur in self._panel_cache:
+            return
+
+        # Safety check: ensure document is still valid
+        if not self.document or self.document.status() != self.document.Status.Ready:
             return
 
         try:

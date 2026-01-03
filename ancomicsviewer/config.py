@@ -60,8 +60,17 @@ class DetectorConfig:
     # Limits
     max_panels_per_page: int = 24  # Safety limit
 
+    # Freeform detection parameters (for complex layouts/tinted backgrounds)
+    bg_delta: float = 15.0        # Lab color distance threshold for background detection (increased for tolerance)
+    sure_fg_ratio: float = 0.35   # Ratio of max distance for sure foreground in watershed (lowered for more seeds)
+    min_area_ratio_freeform: float = 0.005  # Minimum panel area ratio for freeform detection (lowered)
+    min_fill_ratio_freeform: float = 0.15  # Minimum fill ratio for freeform regions (lowered)
+    iou_merge_thr: float = 0.20   # IoU threshold for merging overlapping regions
+    approx_eps_ratio: float = 0.01  # Epsilon ratio for polygon approximation
+
     # Detection options
     use_canny_fallback: bool = True
+    use_freeform_fallback: bool = True  # Enable freeform/watershed fallback
     reading_rtl: bool = False     # Right-to-left reading order (manga)
     debug: bool = False
 
@@ -99,7 +108,14 @@ class DetectorConfig:
             "title_row_big_w_min_frac": self.title_row_big_w_min_frac,
             "title_row_min_meanL": self.title_row_min_meanL,
             "max_panels_per_page": self.max_panels_per_page,
+            "bg_delta": self.bg_delta,
+            "sure_fg_ratio": self.sure_fg_ratio,
+            "min_area_ratio_freeform": self.min_area_ratio_freeform,
+            "min_fill_ratio_freeform": self.min_fill_ratio_freeform,
+            "iou_merge_thr": self.iou_merge_thr,
+            "approx_eps_ratio": self.approx_eps_ratio,
             "use_canny_fallback": self.use_canny_fallback,
+            "use_freeform_fallback": self.use_freeform_fallback,
             "reading_rtl": self.reading_rtl,
             "debug": self.debug,
         }
