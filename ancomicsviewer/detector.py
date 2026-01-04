@@ -262,6 +262,30 @@ class PanelDetector:
                         pdebug(f"[splash] Promote to full-page panel: area_ratio={area_ratio:.2f}, non_bg={non_bg_page:.2f}")
                     rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
 
+            # If nothing survived but the page is full of content, treat it as a single splash page.
+            if (not rects or len(rects) == 0) and img_bgr is not None:
+                page_area = page_point_size.width() * page_point_size.height()
+                non_bg_page = _non_bg_ratio(img_bgr, bg_lab, delta=self.config.freeform_bg_delta)
+                if page_area > 0 and non_bg_page > 0.35:
+                    if self.config.debug:
+                        pdebug(f"[splash] Recovered empty detection as full-page splash: non_bg={non_bg_page:.2f}")
+                    rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
+
+            # Fragmented cover/art page heuristic: if we have several very small panels on a page that is
+            # mostly content (high non-bg), collapse to a full-page panel.
+            if rects and len(rects) >= 3 and img_bgr is not None:
+                page_area = page_point_size.width() * page_point_size.height()
+                if page_area > 0:
+                    areas = [(r.width() * r.height()) for r in rects]
+                    max_ratio = max(a / page_area for a in areas)
+                    coverage = sum(areas) / page_area
+                    non_bg_page = _non_bg_ratio(img_bgr, bg_lab, delta=self.config.freeform_bg_delta)
+                    # Collapse when detection is very fragmented (many small boxes) on a page full of content
+                    if non_bg_page > 0.35 and (max_ratio < 0.25 or coverage < 0.85):
+                        if self.config.debug:
+                            pdebug(f"[splash] Collapsing fragmented page to full: max_ratio={max_ratio:.2f}, coverage={coverage:.2f}, non_bg={non_bg_page:.2f}")
+                        rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
+
             # Sort by reading order
             rects = self._sort_by_reading_order(rects)
             pdebug(f"Reading order: RTL={self.config.reading_rtl}")
