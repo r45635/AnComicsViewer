@@ -348,6 +348,9 @@ class PanelDetector:
                     # Merge both, remove duplicates
                     rects = self._merge_overlapping_rects(rects + gutter_rects)
         
+        # Apply stricter cleanup to adaptive rects before scoring
+        rects = self._remove_header_footer_strips(rects, h)
+        
         # Check if freeform fallback is needed
         if self.config.use_freeform_fallback:
             page_area = page_point_size.width() * page_point_size.height()
@@ -372,14 +375,159 @@ class PanelDetector:
                 
                 freeform_rects = self._freeform_detection(gray_bgr, w, h, page_point_size)
                 
-                if len(freeform_rects) > len(rects):
-                    pdebug(f"[Freeform] Replacing {len(rects)} rects with {len(freeform_rects)} freeform rects")
-                    rects = freeform_rects
-                else:
-                    pdebug(f"[Freeform] Keeping original {len(rects)} rects (freeform found {len(freeform_rects)})")
+                # Use conservative scoring to decide between adaptive and freeform
+                rects = self._select_best_route(rects, freeform_rects, w, h)
         
         return rects
 
+    def _remove_header_footer_strips(self, rects: List[QRectF], h: int) -> List[QRectF]:
+        """Remove header/footer strips (page numbers, title fragments).
+        
+        Removes rects with height < 0.10*h in top/bottom margins.
+        This is conservative and won't affect Tintin panels.
+        """
+        if not rects:
+            return rects
+        
+        filtered = []
+        for rect in rects:
+            # Check if it's a thin strip (height < 10% of page)
+            if rect.height() < 0.10 * h:
+                # In top or bottom margin?
+                if rect.top() < 0.06 * h or (rect.top() + rect.height()) > 0.94 * h:
+                    pdebug(f"[Strip] Removed header/footer at y={rect.top():.1f}, h={rect.height():.1f}")
+                    continue
+            filtered.append(rect)
+        
+        if len(filtered) < len(rects):
+            pdebug(f"[Strip] Removed {len(rects) - len(filtered)} header/footer strips")
+        
+        return filtered
+    
+    def _rects_union_coverage(self, rects: List[QRectF], w: int, h: int) -> float:
+        """Calculate coverage ratio of union(rects) / page_area.
+        
+        Returns fraction of page covered by at least one rect.
+        """
+        if not rects:
+            return 0.0
+        
+        page_area = w * h
+        
+        # Create a binary mask
+        mask = np.zeros((h, w), dtype=np.uint8)
+        
+        for rect in rects:
+            x = int(max(0, min(rect.left(), w - 1)))
+            y = int(max(0, min(rect.top(), h - 1)))
+            x2 = int(max(0, min(rect.left() + rect.width(), w)))
+            y2 = int(max(0, min(rect.top() + rect.height(), h)))
+            
+            if x2 > x and y2 > y:
+                mask[y:y2, x:x2] = 1
+        
+        covered_pixels = np.sum(mask)
+        return covered_pixels / page_area if page_area > 0 else 0.0
+    
+    def _small_rect_ratio(self, rects: List[QRectF], w: int, h: int) -> float:
+        """Fraction of rects whose area < (min_area_ratio * page_area) * K.
+        
+        K ~ 0.5 to identify rects smaller than half the minimum size.
+        """
+        if not rects:
+            return 0.0
+        
+        page_area = w * h
+        min_area = self.config.min_area_pct * page_area * 0.5  # K = 0.5
+        
+        small_count = sum(1 for r in rects if (r.width() * r.height()) < min_area)
+        return small_count / len(rects)
+    
+    def _margin_rect_ratio(self, rects: List[QRectF], w: int, h: int) -> float:
+        """Fraction of rects in top/bottom margins with small height.
+        
+        Identifies page number fragments and title strips.
+        """
+        if not rects:
+            return 0.0
+        
+        margin_count = 0
+        for rect in rects:
+            # Check if in margin
+            in_top_margin = rect.top() < 0.06 * h
+            in_bottom_margin = (rect.top() + rect.height()) > 0.94 * h
+            
+            if (in_top_margin or in_bottom_margin) and rect.height() < 0.12 * h:
+                margin_count += 1
+        
+        return margin_count / len(rects)
+    
+    def _compute_rect_score(self, rects: List[QRectF], w: int, h: int, label: str = "") -> float:
+        """Compute quality score for a set of rects.
+        
+        score = 2.5*coverage - 0.25*count - 1.5*small_ratio - 1.0*margin_ratio
+        
+        Higher score = better quality.
+        """
+        if not rects:
+            return -999.0
+        
+        coverage = self._rects_union_coverage(rects, w, h)
+        count = len(rects)
+        small_ratio = self._small_rect_ratio(rects, w, h)
+        margin_ratio = self._margin_rect_ratio(rects, w, h)
+        
+        score = 2.5 * coverage - 0.25 * count - 1.5 * small_ratio - 1.0 * margin_ratio
+        
+        if self.config.debug:
+            pdebug(f"[Score{label}] coverage={coverage:.3f}, count={count}, "
+                  f"small_ratio={small_ratio:.3f}, margin_ratio={margin_ratio:.3f}, score={score:.3f}")
+        
+        return score
+    
+    def _select_best_route(self, adaptive_rects: List[QRectF], freeform_rects: List[QRectF], 
+                          w: int, h: int) -> List[QRectF]:
+        """Select best route using conservative scoring.
+        
+        Prefer freeform ONLY if:
+        - freeform_coverage >= 0.55
+        - freeform_count between 2 and 12
+        - freeform_score >= adaptive_score + 0.35
+        
+        Otherwise keep adaptive (safe for Tintin).
+        """
+        if not freeform_rects:
+            pdebug("[Selection] Freeform empty, keeping adaptive")
+            return adaptive_rects
+        
+        if not adaptive_rects:
+            pdebug("[Selection] Adaptive empty, using freeform")
+            return freeform_rects
+        
+        # Compute scores
+        adaptive_score = self._compute_rect_score(adaptive_rects, w, h, label=" (adaptive)")
+        freeform_score = self._compute_rect_score(freeform_rects, w, h, label=" (freeform)")
+        
+        # Check freeform constraints
+        freeform_coverage = self._rects_union_coverage(freeform_rects, w, h)
+        freeform_count = len(freeform_rects)
+        
+        # Conservative selection criteria
+        use_freeform = (
+            freeform_coverage >= 0.55 and
+            2 <= freeform_count <= 12 and
+            freeform_score >= adaptive_score + 0.35
+        )
+        
+        if use_freeform:
+            pdebug(f"[Selection] Using FREEFORM: score={freeform_score:.3f} vs {adaptive_score:.3f}, "
+                  f"coverage={freeform_coverage:.3f}, count={freeform_count}")
+            return freeform_rects
+        else:
+            pdebug(f"[Selection] Keeping ADAPTIVE: score={adaptive_score:.3f} vs {freeform_score:.3f}, "
+                  f"freeform coverage={freeform_coverage:.3f}, count={freeform_count}")
+            return adaptive_rects
+    
     def _merge_overlapping_rects(self, rects: List[QRectF]) -> List[QRectF]:
         """Merge rectangles that overlap significantly."""
         if not rects:
