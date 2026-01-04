@@ -827,9 +827,12 @@ class ComicsView(QMainWindow):
         try:
             self._detector_config.debug = True
             self._app_config.debug_panels = True
-            self._panel_cache.pop(cur, None) if hasattr(self._panel_cache, 'pop') else self._panel_cache._cache.pop(cur, None)
+            # Invalidate current page cache so detection reruns with debug
+            if hasattr(self._panel_cache, "invalidate_page"):
+                self._panel_cache.invalidate_page(cur)
             self._ensure_panels(force=True)
         except Exception:
+            pdebug(f"[debug-save] error:\n{traceback.format_exc()}")
             self.statusBar().showMessage("Erreur lors de la génération des debug", 3000)
             return
         finally:
