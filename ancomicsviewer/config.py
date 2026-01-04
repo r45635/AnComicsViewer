@@ -107,8 +107,6 @@ class DetectorConfig:
             "min_gutter_frac": self.min_gutter_frac,
             "max_gutter_px_frac": self.max_gutter_px_frac,
             "gutter_cov_min": self.gutter_cov_min,
-            "gutter_bright_percentile": self.gutter_bright_percentile,
-            "gutter_grad_percentile": self.gutter_grad_percentile,
             "edge_margin_frac": self.edge_margin_frac,
             "light_col_rel": self.light_col_rel,
             "light_row_rel": self.light_row_rel,

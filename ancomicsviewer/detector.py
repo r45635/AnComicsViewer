@@ -249,6 +249,19 @@ class PanelDetector:
                 if self.config.debug:
                     self._save_debug_panels(img_bgr, rects, w, h, page_point_size, "after")
 
+            # Splash-page fallback: if we end with a single small panel but the page is full of content,
+            # promote it to a full-page panel. Helps for full-bleed pages mis-detected as a small box.
+            if rects and len(rects) == 1:
+                page_area = page_point_size.width() * page_point_size.height()
+                panel_area = rects[0].width() * rects[0].height()
+                area_ratio = (panel_area / page_area) if page_area > 0 else 0.0
+                non_bg_page = _non_bg_ratio(img_bgr, bg_lab, delta=self.config.freeform_bg_delta) if img_bgr is not None else 0.0
+
+                if area_ratio < 0.60 and non_bg_page > 0.35:
+                    if self.config.debug:
+                        pdebug(f"[splash] Promote to full-page panel: area_ratio={area_ratio:.2f}, non_bg={non_bg_page:.2f}")
+                    rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
+
             # Sort by reading order
             rects = self._sort_by_reading_order(rects)
             pdebug(f"Reading order: RTL={self.config.reading_rtl}")
