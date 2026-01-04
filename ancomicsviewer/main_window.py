@@ -10,6 +10,9 @@ Provides the primary application interface with:
 from __future__ import annotations
 
 import os
+import glob
+import shutil
+import time
 import traceback
 from typing import Optional, List
 from concurrent.futures import Future
@@ -136,6 +139,10 @@ class ComicsView(QMainWindow):
                      QKeySequence("Ctrl+1"))
         self._add_btn(tb, "🗎", "Fit to page (Ctrl+0)", self.fit_page,
                      QKeySequence("Ctrl+0"))
+        self._add_separator(tb)
+
+        # Debug export
+        self._add_btn(tb, "💾", "Sauvegarder debug de la page", self._save_page_debug_assets)
         self._add_separator(tb)
 
         # Panels
@@ -800,6 +807,55 @@ class ComicsView(QMainWindow):
             self._focus_panel(rects[0])
 
         QTimer.singleShot(delay_ms, focus_first_panel)
+
+    def _save_page_debug_assets(self) -> None:
+        """Run detection with debug enabled for current page and archive debug outputs."""
+        if not self.document:
+            self.statusBar().showMessage("Aucun document chargé", 2000)
+            return
+
+        cur = self.view.pageNavigator().currentPage()
+
+        # Compute paths
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        dbg_dir = os.path.join(root, "debug_output")
+        os.makedirs(dbg_dir, exist_ok=True)
+
+        # Temporarily enable debug, rerun detection for this page
+        prev_debug_cfg = self._detector_config.debug
+        prev_debug_app = self._app_config.debug_panels
+        try:
+            self._detector_config.debug = True
+            self._app_config.debug_panels = True
+            self._panel_cache.pop(cur, None) if hasattr(self._panel_cache, 'pop') else self._panel_cache._cache.pop(cur, None)
+            self._ensure_panels(force=True)
+        except Exception:
+            self.statusBar().showMessage("Erreur lors de la génération des debug", 3000)
+            return
+        finally:
+            self._detector_config.debug = prev_debug_cfg
+            self._app_config.debug_panels = prev_debug_app
+
+        # Collect debug files
+        files = glob.glob(os.path.join(dbg_dir, "*"))
+        files = [f for f in files if os.path.isfile(f)]
+        if not files:
+            self.statusBar().showMessage("Aucun fichier de debug généré", 2500)
+            return
+
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        dest = os.path.join(dbg_dir, f"page_{cur+1:03d}_{ts}")
+        os.makedirs(dest, exist_ok=True)
+
+        copied = 0
+        for f in files:
+            try:
+                shutil.copy2(f, dest)
+                copied += 1
+            except Exception:
+                pass
+
+        self.statusBar().showMessage(f"Debug sauvegardé: {copied} fichiers -> {os.path.relpath(dest, root)}", 4000)
 
     def _update_status(self) -> None:
         """Update status bar."""
