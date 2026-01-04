@@ -879,6 +879,29 @@ class ComicsView(QMainWindow):
             except Exception:
                 pdebug(f"[debug-save] copy error for {f}:\n{traceback.format_exc()}")
 
+        # Write panel coordinates (based on page_render pixels)
+        try:
+            panel_txt = os.path.join(dest, "panels.txt")
+            rects = self._panel_cache.get(cur) or []
+            scale_px = scale  # dpi/72, same scale used to render page_render
+            with open(panel_txt, "w", encoding="utf-8") as fh:
+                fh.write(f"page_render_size_px: {img.width()}x{img.height()}\n")
+                fh.write(f"page_points: {pt.width():.2f}x{pt.height():.2f}\n")
+                fh.write(f"dpi: {dpi}\n")
+                fh.write(f"full_page_rect_px: x=0, y=0, w={img.width()}, h={img.height()}\n")
+                fh.write(f"panel_count: {len(rects)}\n")
+                for idx, r in enumerate(rects, start=1):
+                    x_px = int(round(r.left() * scale_px))
+                    y_px = int(round(r.top() * scale_px))
+                    w_px = int(round(r.width() * scale_px))
+                    h_px = int(round(r.height() * scale_px))
+                    fh.write(
+                        f"panel_id: {idx} | rect_px: x={x_px}, y={y_px}, w={w_px}, h={h_px} | "
+                        f"rect_points: x={r.left():.2f}, y={r.top():.2f}, w={r.width():.2f}, h={r.height():.2f}\n"
+                    )
+        except Exception:
+            pdebug(f"[debug-save] panel write error:\n{traceback.format_exc()}")
+
         # Write info text
         info_path = os.path.join(dest, "info.txt")
         pdf_path = self._current_path or ""
