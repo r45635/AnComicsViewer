@@ -765,21 +765,25 @@ class ComicsView(QMainWindow):
         debug_info = self._detector.last_debug if self._app_config.debug_panels else None
 
         self.view.setZoomMode(QPdfView.ZoomMode.FitInView)
-        # Refresh overlay after zoom change to keep debug contours aligned
-        QTimer.singleShot(50, self._update_overlay_delayed)
-        self._update_status()
+        # Force layout to apply new zoom, then re-apply overlay to match scale
+        try:
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+        except Exception:
+            pass
 
-        # Re-apply overlay after zoom settles to avoid scale mismatch
-        def restore_overlay() -> None:
-            if not self.document or self.view.pageNavigator().currentPage() != cur:
-                return
+        if self.document and self.view.pageNavigator().currentPage() == cur:
             self.view.set_panel_overlay(
                 rects_cached,
                 self._panel_mode,
                 debug_info=debug_info,
                 show_debug=self._app_config.debug_panels,
             )
-        QTimer.singleShot(80, restore_overlay)
+            self.view.viewport().update()
+
+        # Small delayed refresh as safeguard
+        QTimer.singleShot(50, self._update_overlay_delayed)
+        self._update_status()
 
         if not auto_first:
             return
