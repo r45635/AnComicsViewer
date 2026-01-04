@@ -769,7 +769,7 @@ class ComicsView(QMainWindow):
 
         self.view.setZoomMode(QPdfView.ZoomMode.FitInView)
         # Refresh overlay after zoom change to keep debug contours aligned
-        self._update_overlay_delayed()
+        QTimer.singleShot(50, self._update_overlay_delayed)
         self._update_status()
 
         if not auto_first:
