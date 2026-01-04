@@ -293,13 +293,18 @@ class PanelDetector:
                 rects = gutter_rects
         elif 3 <= len(rects) < 6:
             # Moderate success - try to complement with gutter-based
-            # This helps pages like Grémillet p6 and p8
+            # This helps pages like Grémillet p6 and p8, but be careful
+            # not to replace good adaptive rects with gutter grid that has many empty cells
             gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size)
             pdebug(f"Gutter-based route (hybrid) -> {len(gutter_rects)} rects")
             
-            # Merge and deduplicate
-            if len(gutter_rects) > len(rects):
-                # Replace with gutter-based if significantly better
+            # Only use gutter-based if it finds significantly more meaningful panels
+            # Check if gutter grid would produce a large number of small/empty cells
+            if len(gutter_rects) >= 10 and len(gutter_rects) > len(rects) * 3:
+                # Too many rects for a few content areas - likely creating grid with many empty cells
+                pdebug(f"[Gutter] Too many rects ({len(gutter_rects)}) for {len(rects)} adaptive panels - likely marginal cells, skipping")
+            elif len(gutter_rects) > len(rects):
+                # Use gutter-based if it found more meaningful panels
                 if len(gutter_rects) - len(rects) >= 2:
                     rects = gutter_rects
                 else:
