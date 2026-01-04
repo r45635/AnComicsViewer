@@ -142,6 +142,55 @@ class PannablePdfView(QPdfView):
 
     # --- Coordinate conversion ---
 
+    def _effective_zoom_factor(self) -> float:
+        """Get the effective zoom factor, accounting for FitInView/FitToWidth modes.
+
+        In FitInView or FitToWidth modes, zoomFactor() may not reflect the actual
+        zoom used for rendering. This method calculates the effective zoom based
+        on the current zoom mode and viewport size.
+        """
+        doc = self.document()
+        if not doc:
+            return self.zoomFactor()
+
+        cur = self.pageNavigator().currentPage()
+        if cur < 0 or cur >= doc.pageCount():
+            return self.zoomFactor()
+
+        page_pts = doc.pagePointSize(cur)
+        if page_pts.width() <= 0 or page_pts.height() <= 0:
+            return self.zoomFactor()
+
+        zoom_mode = self.zoomMode()
+
+        if zoom_mode == QPdfView.ZoomMode.FitInView:
+            # Calculate zoom to fit page in viewport
+            margins = self.documentMargins()
+            vw = self.viewport().width() - margins.left() - margins.right()
+            vh = self.viewport().height() - margins.top() - margins.bottom()
+
+            if vw <= 0 or vh <= 0:
+                return self.zoomFactor()
+
+            # FitInView: scale to fit both width and height
+            z_w = vw / page_pts.width()
+            z_h = vh / page_pts.height()
+            return min(z_w, z_h)
+
+        elif zoom_mode == QPdfView.ZoomMode.FitToWidth:
+            # Calculate zoom to fit page width
+            margins = self.documentMargins()
+            vw = self.viewport().width() - margins.left() - margins.right()
+
+            if vw <= 0:
+                return self.zoomFactor()
+
+            return vw / page_pts.width()
+
+        else:
+            # Custom mode: use reported zoomFactor
+            return self.zoomFactor()
+
     def _page_to_view_xy(self, x_pt: float, y_pt: float) -> tuple[float, float]:
         """Convert page point coordinates to viewport pixels.
 
@@ -158,25 +207,37 @@ class PannablePdfView(QPdfView):
 
         cur = self.pageNavigator().currentPage()
         page_pts = doc.pagePointSize(cur)
-        z = self.zoomFactor()
+        z = self._effective_zoom_factor()
 
         # Get viewport dimensions and margins
         vw = self.viewport().width()
+        vh = self.viewport().height()
         margins = self.documentMargins()
         spacing = self.pageSpacing()
 
         # Calculate page size in pixels
         page_w = page_pts.width() * z
+        page_h = page_pts.height() * z
 
-        # Calculate page position based on page mode
+        # Calculate page position based on page mode and zoom mode
+        zoom_mode = self.zoomMode()
+
         if self.pageMode() == QPdfView.PageMode.SinglePage:
-            # SinglePage mode: page is centered horizontally
+            # SinglePage mode: page is centered
             avail_w = vw - margins.left() - margins.right()
-            page_x = margins.left() + max(0.0, (avail_w - page_w) / 2.0)
-            page_y = margins.top()
+            avail_h = vh - margins.top() - margins.bottom()
+
+            # In FitInView, page is centered both horizontally and vertically
+            if zoom_mode == QPdfView.ZoomMode.FitInView:
+                page_x = margins.left() + max(0.0, (avail_w - page_w) / 2.0)
+                page_y = margins.top() + max(0.0, (avail_h - page_h) / 2.0)
+            else:
+                page_x = margins.left() + max(0.0, (avail_w - page_w) / 2.0)
+                page_y = margins.top()
         else:
             # MultiPage mode: pages stacked vertically
-            page_x = margins.left()
+            avail_w = vw - margins.left() - margins.right()
+            page_x = margins.left() + max(0.0, (avail_w - page_w) / 2.0)
             page_y = margins.top()
             for i in range(cur):
                 prev_pts = doc.pagePointSize(i)
@@ -195,7 +256,7 @@ class PannablePdfView(QPdfView):
     def _page_rect_to_view(self, r: QRectF) -> QRectF:
         """Convert page point rectangle to viewport pixels."""
         x, y = self._page_to_view_xy(r.left(), r.top())
-        z = self.zoomFactor()
+        z = self._effective_zoom_factor()
         return QRectF(x, y, r.width() * z, r.height() * z)
 
     # --- Paint overlay ---

@@ -14,6 +14,9 @@ import glob
 import shutil
 import time
 import traceback
+import subprocess
+import json
+from datetime import datetime
 from typing import Optional, List
 from concurrent.futures import Future
 import hashlib
@@ -821,13 +824,37 @@ class ComicsView(QMainWindow):
         dbg_dir = os.path.join(root, "debug_output")
         os.makedirs(dbg_dir, exist_ok=True)
 
+        # Render current page to PNG (original view) for archive
+        try:
+            pt = self.document.pagePointSize(cur)
+            dpi = self._app_config.detection_dpi
+            scale = dpi / 72.0
+            qsize = QSizeF(pt.width() * scale, pt.height() * scale).toSize()
+            img = self.document.render(cur, qsize)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest = os.path.join(dbg_dir, f"page_{cur+1:03d}_{ts}")
+            os.makedirs(dest, exist_ok=True)
+            img.save(os.path.join(dest, "page_render.png"))
+        except Exception:
+            pdebug(f"[debug-save] render error:\n{traceback.format_exc()}")
+            self.statusBar().showMessage("Erreur rendu page", 3000)
+            return
+
         # Temporarily enable debug, rerun detection for this page
         prev_debug_cfg = self._detector_config.debug
         prev_debug_app = self._app_config.debug_panels
+        config_snapshot = None
         try:
             self._detector_config.debug = True
             self._app_config.debug_panels = True
-            # Invalidate current page cache so detection reruns with debug
+            config_snapshot = {
+                "detector_config": self._detector_config.to_dict(),
+                "app_config": {
+                    "detection_dpi": self._app_config.detection_dpi,
+                    "panel_framing": self._app_config.panel_framing,
+                    "debug_panels": self._app_config.debug_panels,
+                },
+            }
             if hasattr(self._panel_cache, "invalidate_page"):
                 self._panel_cache.invalidate_page(cur)
             self._ensure_panels(force=True)
@@ -839,26 +866,59 @@ class ComicsView(QMainWindow):
             self._detector_config.debug = prev_debug_cfg
             self._app_config.debug_panels = prev_debug_app
 
-        # Collect debug files
-        files = glob.glob(os.path.join(dbg_dir, "*"))
-        files = [f for f in files if os.path.isfile(f)]
-        if not files:
-            self.statusBar().showMessage("Aucun fichier de debug généré", 2500)
-            return
-
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        dest = os.path.join(dbg_dir, f"page_{cur+1:03d}_{ts}")
-        os.makedirs(dest, exist_ok=True)
-
+        # Collect debug files produced in dbg_dir (files only in root)
+        files = [f for f in glob.glob(os.path.join(dbg_dir, "*")) if os.path.isfile(f)]
         copied = 0
         for f in files:
+            # Skip files already inside this dest
+            if os.path.commonpath([dest, f]) == dest:
+                continue
             try:
                 shutil.copy2(f, dest)
                 copied += 1
             except Exception:
-                pass
+                pdebug(f"[debug-save] copy error for {f}:\n{traceback.format_exc()}")
 
-        self.statusBar().showMessage(f"Debug sauvegardé: {copied} fichiers -> {os.path.relpath(dest, root)}", 4000)
+        # Write info text
+        info_path = os.path.join(dest, "info.txt")
+        pdf_path = self._current_path or ""
+        pdf_name = os.path.basename(pdf_path) if pdf_path else ""
+        try:
+            rev = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip()
+        except Exception:
+            rev = "unknown"
+        with open(info_path, "w", encoding="utf-8") as fh:
+            fh.write(f"pdf_name: {pdf_name}\n")
+            fh.write(f"pdf_path: {pdf_path}\n")
+            fh.write(f"page_number: {cur+1}\n")
+            fh.write(f"timestamp: {datetime.now().isoformat()}\n")
+            fh.write(f"project_root: {root}\n")
+            fh.write(f"git_revision: {rev}\n")
+
+        config_path = os.path.join(dest, "config.json")
+        try:
+            with open(config_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    config_snapshot
+                    or {
+                        "detector_config": self._detector_config.to_dict(),
+                        "app_config": {
+                            "detection_dpi": self._app_config.detection_dpi,
+                            "panel_framing": self._app_config.panel_framing,
+                            "debug_panels": self._app_config.debug_panels,
+                        },
+                    },
+                    fh,
+                    indent=2,
+                    sort_keys=True,
+                )
+        except Exception:
+            pdebug(f"[debug-save] config write error:\n{traceback.format_exc()}")
+
+        self.statusBar().showMessage(
+            f"Debug sauvegardé: page {cur+1} ({copied} fichiers + page_render.png) -> {os.path.relpath(dest, root)}",
+            5000,
+        )
 
     def _update_status(self) -> None:
         """Update status bar."""
