@@ -1499,9 +1499,12 @@ class PanelDetector:
                                bg_lab: NDArray, w: int, h: int, page_point_size: QSizeF,
                                delta: float = 12.0,
                                contain_thr: float = 0.90, 
-                               area_ratio_thr: float = 0.15,
+                               area_ratio_thr: float = 0.25,
                                empty_ratio_thr: float = 0.10) -> List[QRectF]:
-        """Remove nested rectangles (small rects inside larger ones) that are mostly empty.
+        """Handle nested rectangles by merging them (taking union of nested panels).
+        
+        When a small panel is completely inside a larger panel, merge them into one
+        taking the reading order of the inner (weaker) panel.
         
         Args:
             rects: Panel rectangles in page points
@@ -1515,7 +1518,7 @@ class PanelDetector:
             empty_ratio_thr: Maximum non-bg ratio for considering rect empty
             
         Returns:
-            Filtered list without nested empty rectangles
+            List with nested rectangles merged
         """
         if len(rects) <= 1 or img_bgr is None:
             return rects
@@ -1525,6 +1528,7 @@ class PanelDetector:
         # Convert BGR to avoid repeated conversions
         img_lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2Lab).astype(np.float32)
         
+        merged_indices = {}  # Maps old index to merged rectangle + new index
         to_remove = set()
         
         # Check all pairs
@@ -1559,41 +1563,33 @@ class PanelDetector:
                 
                 # If highly contained
                 if containment >= contain_thr:
-                    # Check if small rect is mostly empty (background)
-                    x = int(small.left() * scale)
-                    y = int(small.top() * scale)
-                    rw = int(small.width() * scale)
-                    rh = int(small.height() * scale)
+                    # Merge nested panels: small panel inside big
+                    # Take union to capture all content
+                    merged_rect = small.united(big)
+                    merged_indices[j] = merged_rect
+                    to_remove.add(i)
                     
-                    # Clamp to bounds
-                    x = max(0, min(x, w - 1))
-                    y = max(0, min(y, h - 1))
-                    rw = max(1, min(rw, w - x))
-                    rh = max(1, min(rh, h - y))
-                    
-                    # Extract ROI
-                    roi_bgr = img_bgr[y:y+rh, x:x+rw]
-                    
-                    if roi_bgr.size == 0:
-                        continue
-                    
-                    # Calculate non-background ratio
-                    non_bg = _non_bg_ratio(roi_bgr, bg_lab, delta)
-                    
-                    if non_bg < empty_ratio_thr:
-                        to_remove.add(i)
-                        pdebug(f"[Nested] Removed nested empty rect at ({small.left():.0f},{small.top():.0f}) "
-                              f"{small.width():.0f}x{small.height():.0f}pt: "
-                              f"containment={containment:.2f}, non_bg={non_bg:.3f}, "
-                              f"contained in ({big.left():.0f},{big.top():.0f}) {big.width():.0f}x{big.height():.0f}pt")
-                        break
+                    pdebug(f"[Nested] Merged nested rect at ({small.left():.0f},{small.top():.0f}) "
+                          f"{small.width():.0f}x{small.height():.0f}pt "
+                          f"into ({big.left():.0f},{big.top():.0f}) {big.width():.0f}x{big.height():.0f}pt -> "
+                          f"union ({merged_rect.left():.0f},{merged_rect.top():.0f}) "
+                          f"{merged_rect.width():.0f}x{merged_rect.height():.0f}pt")
+                    break
         
-        filtered = [r for i, r in enumerate(rects) if i not in to_remove]
+        # Build result: keep non-removed rects, apply merged versions where applicable
+        result = []
+        for i, r in enumerate(rects):
+            if i in to_remove:
+                continue
+            if i in merged_indices:
+                result.append(merged_indices[i])
+            else:
+                result.append(r)
         
         if len(to_remove) > 0:
-            pdebug(f"[Panels] nested-suppress: removed {len(to_remove)} rects")
+            pdebug(f"[Panels] nested-merge: merged {len(to_remove)} rects")
         
-        return filtered
+        return result
 
     def _sort_by_reading_order(self, rects: List[QRectF]) -> List[QRectF]:
         """Sort rectangles by reading order (LTR or RTL)."""
