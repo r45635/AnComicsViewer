@@ -764,13 +764,22 @@ class ComicsView(QMainWindow):
         rects_cached = self._panel_cache.get(cur) or []
         debug_info = self._detector.last_debug if self._app_config.debug_panels else None
 
-        # Hide overlay during full-page view to avoid misaligned debug contours at FitInView
-        self.view.set_panel_overlay([], self._panel_mode, debug_info=None, show_debug=False)
-
         self.view.setZoomMode(QPdfView.ZoomMode.FitInView)
         # Refresh overlay after zoom change to keep debug contours aligned
         QTimer.singleShot(50, self._update_overlay_delayed)
         self._update_status()
+
+        # Re-apply overlay after zoom settles to avoid scale mismatch
+        def restore_overlay() -> None:
+            if not self.document or self.view.pageNavigator().currentPage() != cur:
+                return
+            self.view.set_panel_overlay(
+                rects_cached,
+                self._panel_mode,
+                debug_info=debug_info,
+                show_debug=self._app_config.debug_panels,
+            )
+        QTimer.singleShot(80, restore_overlay)
 
         if not auto_first:
             return
@@ -784,13 +793,6 @@ class ComicsView(QMainWindow):
             if not self.document or self.view.pageNavigator().currentPage() != cur:
                 return
             self._panel_index = 0
-            # Restore overlay before focusing
-            self.view.set_panel_overlay(
-                rects,
-                self._panel_mode,
-                debug_info=debug_info,
-                show_debug=self._app_config.debug_panels,
-            )
             self._focus_panel(rects[0])
 
         QTimer.singleShot(delay_ms, focus_first_panel)
