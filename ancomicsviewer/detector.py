@@ -154,6 +154,13 @@ class PanelDetector:
             # Prepare grayscale and LAB L channel
             gray = rgba_to_grayscale(arr)
             L = rgba_to_lab_l(arr, apply_clahe=True)
+            
+            # Convert to BGR for Lab-based filtering
+            img_bgr = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+            
+            # Estimate background color in Lab space
+            bg_lab = _estimate_bg_lab(img_bgr, border_pct=0.04)
+            pdebug(f"[Panels] bg_lab=({bg_lab[0]:.1f}, {bg_lab[1]:.1f}, {bg_lab[2]:.1f})")
 
             # Try detection routes in order
             rects = self._try_detection_routes(gray, L, w, h, page_point_size)
@@ -167,6 +174,80 @@ class PanelDetector:
             if rects:
                 rects = self._filter_by_area(rects, page_point_size)
                 pdebug(f"After area filter -> {len(rects)} rects")
+            
+            # Filter out empty rectangles (no content)
+            if rects:
+                rects = self._filter_empty_rects(rects, gray, w, h, page_point_size)
+                pdebug(f"After empty filter -> {len(rects)} rects")
+            
+            # Lab-based empty filtering (for tinted/watercolor pages)
+            if rects:
+                initial_count = len(rects)
+                filtered_rects = []
+                
+                # Calculate median dimensions for thin panel detection
+                if len(rects) > 1:
+                    widths = [r.width() for r in rects]
+                    heights = [r.height() for r in rects]
+                    median_w = np.median(widths)
+                    median_h = np.median(heights)
+                else:
+                    median_w = median_h = 0
+                
+                for rect in rects:
+                    # Check non-background ratio
+                    x = int(rect.left() * (w / page_point_size.width()))
+                    y = int(rect.top() * (h / page_point_size.height()))
+                    rw = int(rect.width() * (w / page_point_size.width()))
+                    rh = int(rect.height() * (h / page_point_size.height()))
+                    
+                    # Clamp to bounds
+                    x = max(0, min(x, w - 1))
+                    y = max(0, min(y, h - 1))
+                    rw = max(1, min(rw, w - x))
+                    rh = max(1, min(rh, h - y))
+                    
+                    roi_bgr = img_bgr[y:y+rh, x:x+rw]
+                    
+                    if roi_bgr.size == 0:
+                        continue
+                    
+                    non_bg = _non_bg_ratio(roi_bgr, bg_lab, delta=self.config.bg_delta)
+                    
+                    # Filter if too empty (mostly background)
+                    if non_bg < self.config.min_non_bg_ratio:
+                        pdebug(f"[Lab] Dropped mostly-bg panel at ({rect.left():.0f},{rect.top():.0f}): "
+                              f"non_bg={non_bg:.3f} < {self.config.min_non_bg_ratio:.3f}")
+                        continue
+                    
+                    # Filter if too thin (likely gutters misdetected as panels)
+                    if median_w > 0 and median_h > 0:
+                        if (rect.height() < self.config.min_dim_ratio * median_h or
+                            rect.width() < self.config.min_dim_ratio * median_w):
+                            pdebug(f"[Lab] Dropped thin panel at ({rect.left():.0f},{rect.top():.0f}): "
+                                  f"{rect.width():.0f}x{rect.height():.0f}pt vs median "
+                                  f"{median_w:.0f}x{median_h:.0f}pt (min_ratio={self.config.min_dim_ratio:.2f})")
+                            continue
+                    
+                    filtered_rects.append(rect)
+                
+                rects = filtered_rects
+                if len(rects) < initial_count:
+                    pdebug(f"[Lab] Lab-based filter: {initial_count} -> {len(rects)} panels")
+            
+            # Suppress nested rectangles (small rects inside larger ones)
+            if rects:
+                # Save debug image before nested suppression if debug mode
+                if self.config.debug:
+                    self._save_debug_panels(img_bgr, rects, w, h, page_point_size, "before")
+                
+                rects = self._suppress_nested_rects(rects, img_bgr, bg_lab, w, h, page_point_size,
+                                                    delta=self.config.bg_delta)
+                pdebug(f"After nested suppression -> {len(rects)} rects")
+                
+                # Save debug image after nested suppression if debug mode
+                if self.config.debug:
+                    self._save_debug_panels(img_bgr, rects, w, h, page_point_size, "after")
 
             # Sort by reading order
             rects = self._sort_by_reading_order(rects)
@@ -340,9 +421,11 @@ class PanelDetector:
         # 4. Extract regions
         regions = extract_panel_regions(
             markers, (h, w),
+            img_bgr, mask_bg,
             min_area_ratio=self.config.min_area_ratio_freeform,
             max_area_ratio=self.config.max_area_pct,
             min_fill_ratio=self.config.min_fill_ratio_freeform,
+            min_content_ratio=0.05,  # At least 5% of region must be non-background
             approx_eps_ratio=self.config.approx_eps_ratio
         )
         
@@ -447,6 +530,124 @@ class PanelDetector:
         dil = cv2.dilate(edges, kernel, iterations=2)
         return cv2.morphologyEx(dil, cv2.MORPH_CLOSE, kernel, iterations=2)
 
+    def _make_gutter_mask(self, gray: NDArray, L: NDArray) -> NDArray:
+        """Build a robust gutter mask using brightness + gradient uniformity.
+        
+        Identifies gutters as pixels that are BOTH very bright AND locally uniform
+        (low gradient). This avoids picking up bright regions inside panels.
+        
+        Args:
+            gray: Grayscale image
+            L: LAB L-channel
+            
+        Returns:
+            uint8 gutter mask (0=not gutter, 255=gutter)
+        """
+        h, w = L.shape
+        
+        # Adaptive brightness threshold: use high percentile (gutters are very bright)
+        # Default: 94th percentile of L values
+        L_percentile = getattr(self.config, 'gutter_bright_percentile', 94)
+        L_high = np.percentile(L, L_percentile)
+        pdebug(f"[gutter_mask] L_high (p{L_percentile})={L_high:.1f}")
+        
+        # Compute gradient magnitude (Sobel)
+        # Gutters are uniform (low gradient), highlights/text have high gradient
+        grad_x = cv2.Sobel(L, cv2.CV_32F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(L, cv2.CV_32F, 0, 1, ksize=3)
+        grad_mag = np.abs(grad_x) + np.abs(grad_y)
+        
+        # Adaptive gradient threshold: use low percentile (gutters have low edges)
+        # Default: 50th percentile (median) or lower
+        grad_percentile = getattr(self.config, 'gutter_grad_percentile', 50)
+        grad_low = np.percentile(grad_mag, grad_percentile)
+        pdebug(f"[gutter_mask] grad_low (p{grad_percentile})={grad_low:.1f}")
+        
+        # Combine: both bright AND uniform
+        bright_mask = (L >= L_high).astype(np.uint8) * 255
+        uniform_mask = (grad_mag <= grad_low).astype(np.uint8) * 255
+        gutter_mask = cv2.bitwise_and(bright_mask, uniform_mask)
+        
+        # Morphological closing to connect gutter regions
+        # Use elongated kernels to preserve gutter shape
+        h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 3))
+        v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 11))
+        
+        gutter_h = cv2.morphologyEx(gutter_mask, cv2.MORPH_CLOSE, h_kernel, iterations=1)
+        gutter_v = cv2.morphologyEx(gutter_mask, cv2.MORPH_CLOSE, v_kernel, iterations=1)
+        gutter_mask = cv2.bitwise_or(gutter_h, gutter_v)
+        
+        pdebug(f"[gutter_mask] Created gutter mask from brightness + gradient")
+        return gutter_mask
+
+    def _validate_gutter_lines(self, gutter_mask: NDArray, 
+                               h_lines: List[Tuple[int, int]], 
+                               v_lines: List[Tuple[int, int]]) -> tuple:
+        """Validate gutter candidates based on coverage and thickness.
+        
+        Keep only gutters that have high coverage across their extent and
+        sufficient thickness.
+        
+        Args:
+            gutter_mask: Binary gutter mask (255=gutter)
+            h_lines: List of (y_start, y_end) horizontal gutter candidates
+            v_lines: List of (x_start, x_end) vertical gutter candidates
+            
+        Returns:
+            (validated_h_lines, validated_v_lines)
+        """
+        c = self.config
+        min_coverage = c.gutter_cov_min  # Default: 0.85
+        min_thickness = c.min_gutter_px  # Default: 5 pixels
+        
+        h, w = gutter_mask.shape
+        validated_h = []
+        validated_v = []
+        
+        # Validate horizontal gutters
+        for y_start, y_end in h_lines:
+            thickness = y_end - y_start + 1
+            
+            if thickness < min_thickness:
+                pdebug(f"[validate_gutters] Rejected h-gutter y={y_start}..{y_end}: thickness={thickness} < {min_thickness}")
+                continue
+            
+            # Extract band and compute coverage
+            band = gutter_mask[y_start:y_end+1, :]
+            if band.size == 0:
+                continue
+            
+            coverage = np.mean(band == 255)
+            
+            if coverage >= min_coverage:
+                validated_h.append((y_start, y_end))
+                pdebug(f"[validate_gutters] Kept h-gutter y={y_start}..{y_end}: coverage={coverage:.3f}")
+            else:
+                pdebug(f"[validate_gutters] Rejected h-gutter y={y_start}..{y_end}: coverage={coverage:.3f} < {min_coverage}")
+        
+        # Validate vertical gutters
+        for x_start, x_end in v_lines:
+            thickness = x_end - x_start + 1
+            
+            if thickness < min_thickness:
+                pdebug(f"[validate_gutters] Rejected v-gutter x={x_start}..{x_end}: thickness={thickness} < {min_thickness}")
+                continue
+            
+            # Extract band and compute coverage
+            band = gutter_mask[:, x_start:x_end+1]
+            if band.size == 0:
+                continue
+            
+            coverage = np.mean(band == 255)
+            
+            if coverage >= min_coverage:
+                validated_v.append((x_start, x_end))
+                pdebug(f"[validate_gutters] Kept v-gutter x={x_start}..{x_end}: coverage={coverage:.3f}")
+            else:
+                pdebug(f"[validate_gutters] Rejected v-gutter x={x_start}..{x_end}: coverage={coverage:.3f} < {min_coverage}")
+        
+        return validated_h, validated_v
+
     def _gutter_based_detection(
         self, 
         gray: NDArray, 
@@ -459,23 +660,26 @@ class PanelDetector:
         
         Better for layouts where panels are separated by color transitions, not black lines.
         Analyzes horizontal and vertical luminosity projections to find separation lines.
+        Uses adaptive gutter mask (brightness + low gradient) for robustness.
         """
         c = self.config
         
-        # Use luminosity to find bright separations (gutters)
-        # In color layouts, gutters are often white or very light
-        _, binary = cv2.threshold(L, 200, 255, cv2.THRESH_BINARY)
+        # Build robust gutter mask: bright + uniform (low gradient)
+        gutter_mask = self._make_gutter_mask(gray, L)
         
-        # Find horizontal and vertical projections of white pixels
-        h_proj = np.sum(binary, axis=1)  # Sum across columns (horizontal lines)
-        v_proj = np.sum(binary, axis=0)  # Sum across rows (vertical lines)
+        # Save debug image of gutter mask if debug mode
+        if self.config.debug:
+            self._save_debug_image(gutter_mask, "dbg_gutter_mask.png")
+        
+        # Find horizontal and vertical projections of gutter pixels
+        h_proj = np.sum(gutter_mask, axis=1)  # Sum across columns (horizontal lines)
+        v_proj = np.sum(gutter_mask, axis=0)  # Sum across rows (vertical lines)
         
         # Normalize projections
         h_proj_norm = h_proj / w if w > 0 else h_proj
         v_proj_norm = v_proj / h if h > 0 else v_proj
         
-        # Find valleys (gutters) - significant dips in luminosity
-        # Use more aggressive thresholding
+        # Smooth projections to find peaks
         from scipy import signal
         try:
             h_smooth = signal.savgol_filter(h_proj_norm, window_length=min(51, len(h_proj_norm)//2 | 1), polyorder=3)
@@ -484,35 +688,53 @@ class PanelDetector:
             h_smooth = h_proj_norm
             v_smooth = v_proj_norm
         
-        # Find extrema (peaks of white space)
+        # Find peaks in projections (gutter positions)
         from scipy.signal import find_peaks
+        
+        # Scale distance and prominence based on image dimensions
+        h_distance = int(max(30, 0.015 * h))
+        v_distance = int(max(30, 0.015 * w))
+        prominence = 0.015
+        
         try:
-            # Look for peaks in the smoothed projections (high white pixel count = gutters)
-            # Use high percentile to find major gutters (85 gives good balance)
             h_threshold = np.percentile(h_smooth, 85)
             v_threshold = np.percentile(v_smooth, 85)
-            h_peaks, _ = find_peaks(h_smooth, height=h_threshold, distance=40, prominence=0.015)
-            v_peaks, _ = find_peaks(v_smooth, height=v_threshold, distance=40, prominence=0.015)
+            h_peaks, _ = find_peaks(h_smooth, height=h_threshold, distance=h_distance, prominence=prominence)
+            v_peaks, _ = find_peaks(v_smooth, height=v_threshold, distance=v_distance, prominence=prominence)
         except:
             h_peaks = np.where(h_smooth > np.percentile(h_smooth, 85))[0]
             v_peaks = np.where(v_smooth > np.percentile(v_smooth, 85))[0]
         
-        # Limit to max 10 horizontal and 10 vertical gutters
+        pdebug(f"[gutters] h_peaks raw={len(h_peaks)} v_peaks raw={len(v_peaks)}")
+        
+        # Limit to max 10 horizontal and 10 vertical gutters (keep highest energy)
         if len(h_peaks) > 10:
             peak_heights = h_smooth[h_peaks]
             top_indices = np.argsort(peak_heights)[-10:]
             h_peaks = h_peaks[np.sort(top_indices)]
+            pdebug(f"[gutters] h_peaks reduced to {len(h_peaks)} using top-energy selection")
+        
         if len(v_peaks) > 10:
             peak_heights = v_smooth[v_peaks]
             top_indices = np.argsort(peak_heights)[-10:]
             v_peaks = v_peaks[np.sort(top_indices)]
-            v_peaks = np.where(v_smooth > np.percentile(v_smooth, 60))[0]
+            pdebug(f"[gutters] v_peaks reduced to {len(v_peaks)} using top-energy selection")
         
-        # Group peaks into gutter regions
+        # Group peaks into gutter regions (start/end pairs)
         h_lines = self._group_gutter_lines(h_peaks)
         v_lines = self._group_gutter_lines(v_peaks)
         
+        pdebug(f"[gutters] h_lines raw={len(h_lines)} v_lines raw={len(v_lines)}")
+        
+        # ✅ Validate gutters: keep only those with high coverage and sufficient thickness
+        h_lines, v_lines = self._validate_gutter_lines(gutter_mask, h_lines, v_lines)
+        
+        pdebug(f"[gutters] h_lines valid={len(h_lines)} v_lines valid={len(v_lines)}")
         pdebug(f"Found {len(h_lines)} horizontal gutters, {len(v_lines)} vertical gutters")
+        
+        # Save debug image with validated gutter lines if debug mode
+        if self.config.debug:
+            self._save_debug_gutters(gutter_mask, h_lines, v_lines, w, h, "dbg_hv_gutters.png")
         
         # Generate panels from gutter intersections
         if h_lines and v_lines:
@@ -702,7 +924,11 @@ class PanelDetector:
         return rect
 
     def _group_gutter_lines(self, gutter_pixels: NDArray) -> List[Tuple[int, int]]:
-        """Group consecutive gutter pixels into regions."""
+        """Group consecutive gutter pixels into regions, expanding isolated peaks.
+        
+        If peaks are sparse (not consecutive), expand them into bands to ensure
+        minimum thickness.
+        """
         if len(gutter_pixels) == 0:
             return []
         
@@ -718,7 +944,103 @@ class PanelDetector:
             prev = pixel
         
         lines.append((start, prev))
-        return lines
+        
+        # Expand thin lines to ensure minimum 3-pixel thickness for detection
+        expanded_lines = []
+        for y_start, y_end in lines:
+            thickness = y_end - y_start + 1
+            if thickness < 3:
+                # Expand symmetrically
+                expand = (3 - thickness + 1) // 2
+                y_start = max(0, y_start - expand)
+                y_end = min(y_end + expand, 4096)  # Reasonable max
+            expanded_lines.append((y_start, y_end))
+        
+        return expanded_lines
+
+    def _validate_h_gutters(self, binary_bright: NDArray, h_lines: List[Tuple[int, int]], 
+                           min_cov: float = 0.85, band: int = 6) -> List[Tuple[int, int]]:
+        """Validate horizontal gutter candidates by checking continuity across width.
+        
+        Args:
+            binary_bright: Binary mask of bright pixels (255 = bright, 0 = dark)
+            h_lines: List of (y0, y1) horizontal gutter candidates
+            min_cov: Minimum coverage ratio (bright pixels / total pixels)
+            band: Half-height of the band to check around gutter center
+            
+        Returns:
+            List of validated (y0, y1) tuples
+        """
+        if not h_lines:
+            return []
+        
+        h, w = binary_bright.shape
+        validated = []
+        
+        for y0, y1 in h_lines:
+            y_center = (y0 + y1) // 2
+            y_min = max(0, y_center - band)
+            y_max = min(h, y_center + band)
+            
+            # Extract horizontal band
+            band_region = binary_bright[y_min:y_max, :]
+            
+            if band_region.size == 0:
+                continue
+            
+            # Calculate coverage of bright pixels
+            bright_pixels = np.sum(band_region == 255)
+            total_pixels = band_region.size
+            coverage = bright_pixels / total_pixels if total_pixels > 0 else 0
+            
+            if coverage >= min_cov:
+                validated.append((y0, y1))
+            else:
+                pdebug(f"[gutters] Rejected h-gutter at y={y_center}: coverage={coverage:.2f} < {min_cov}")
+        
+        return validated
+
+    def _validate_v_gutters(self, binary_bright: NDArray, v_lines: List[Tuple[int, int]], 
+                           min_cov: float = 0.85, band: int = 6) -> List[Tuple[int, int]]:
+        """Validate vertical gutter candidates by checking continuity across height.
+        
+        Args:
+            binary_bright: Binary mask of bright pixels (255 = bright, 0 = dark)
+            v_lines: List of (x0, x1) vertical gutter candidates
+            min_cov: Minimum coverage ratio (bright pixels / total pixels)
+            band: Half-width of the band to check around gutter center
+            
+        Returns:
+            List of validated (x0, x1) tuples
+        """
+        if not v_lines:
+            return []
+        
+        h, w = binary_bright.shape
+        validated = []
+        
+        for x0, x1 in v_lines:
+            x_center = (x0 + x1) // 2
+            x_min = max(0, x_center - band)
+            x_max = min(w, x_center + band)
+            
+            # Extract vertical band
+            band_region = binary_bright[:, x_min:x_max]
+            
+            if band_region.size == 0:
+                continue
+            
+            # Calculate coverage of bright pixels
+            bright_pixels = np.sum(band_region == 255)
+            total_pixels = band_region.size
+            coverage = bright_pixels / total_pixels if total_pixels > 0 else 0
+            
+            if coverage >= min_cov:
+                validated.append((x0, x1))
+            else:
+                pdebug(f"[gutters] Rejected v-gutter at x={x_center}: coverage={coverage:.2f} < {min_cov}")
+        
+        return validated
 
     def _panels_from_gutters(
         self, 
@@ -738,9 +1060,9 @@ class PanelDetector:
         
         # Extract panels from gutter grid
         # Relaxed minimum to allow smaller panels (e.g., third column on Grémillet p6)
-        # Use 8% instead of 12% to catch more panels while staying reasonable
-        min_panel_w = max(self.config.min_rect_px, int(0.08 * w))
-        min_panel_h = max(self.config.min_rect_px, int(0.08 * h))
+        # Use 2.5% instead of 12% to catch more panels while staying reasonable
+        min_panel_w = max(self.config.min_rect_px, int(0.025 * w))
+        min_panel_h = max(self.config.min_rect_px, int(0.025 * h))
         
         if self.config.debug:
             pdebug(f"[gutters] h_boundaries={len(h_boundaries)} v_boundaries={len(v_boundaries)}")
@@ -1113,6 +1435,166 @@ class PanelDetector:
         return [r for r in rects
                 if min_area <= (r.width() * r.height()) <= max_area]
 
+    def _filter_empty_rects(self, rects: List[QRectF], gray: NDArray, 
+                           w: int, h: int, page_point_size: QSizeF,
+                           min_content_ratio: float = 0.03) -> List[QRectF]:
+        """Filter out rectangles that contain mostly empty background.
+        
+        Args:
+            rects: Panel rectangles in page points
+            gray: Grayscale image
+            w, h: Image dimensions in pixels
+            page_point_size: Page dimensions in points
+            min_content_ratio: Minimum ratio of dark pixels (content) required
+            
+        Returns:
+            Filtered list of rectangles with actual content
+        """
+        if not rects or gray is None:
+            return rects
+        
+        scale = w / page_point_size.width() if page_point_size.width() > 0 else 1.0
+        
+        # Create binary mask: dark pixels (content) vs bright pixels (background)
+        # Threshold at 200 to catch most background/gutter areas
+        _, content_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+        
+        filtered = []
+        for rect in rects:
+            # Convert rect to pixel coordinates
+            x = int(rect.left() * scale)
+            y = int(rect.top() * scale)
+            rw = int(rect.width() * scale)
+            rh = int(rect.height() * scale)
+            
+            # Clamp to image bounds
+            x = max(0, min(x, w - 1))
+            y = max(0, min(y, h - 1))
+            rw = max(1, min(rw, w - x))
+            rh = max(1, min(rh, h - y))
+            
+            # Extract region from content mask
+            region_mask = content_mask[y:y+rh, x:x+rw]
+            
+            if region_mask.size == 0:
+                continue
+            
+            # Calculate ratio of content pixels (dark = 255 in inverted mask)
+            content_pixels = np.sum(region_mask == 255)
+            total_pixels = region_mask.size
+            content_ratio = content_pixels / total_pixels
+            
+            if content_ratio >= min_content_ratio:
+                filtered.append(rect)
+            else:
+                pdebug(f"[Filter] Rejected empty rect at ({rect.left():.0f},{rect.top():.0f}) "
+                      f"{rect.width():.0f}x{rect.height():.0f}pt: content={content_ratio:.3f} < {min_content_ratio}")
+        
+        if len(filtered) < len(rects):
+            pdebug(f"[Filter] Removed {len(rects) - len(filtered)} empty rectangles")
+        
+        return filtered
+
+    def _suppress_nested_rects(self, rects: List[QRectF], img_bgr: NDArray, 
+                               bg_lab: NDArray, w: int, h: int, page_point_size: QSizeF,
+                               delta: float = 12.0,
+                               contain_thr: float = 0.90, 
+                               area_ratio_thr: float = 0.15,
+                               empty_ratio_thr: float = 0.10) -> List[QRectF]:
+        """Remove nested rectangles (small rects inside larger ones) that are mostly empty.
+        
+        Args:
+            rects: Panel rectangles in page points
+            img_bgr: Image in BGR format (for content checking)
+            bg_lab: Background color in Lab
+            w, h: Image dimensions in pixels
+            page_point_size: Page dimensions in points
+            delta: Lab distance threshold for background detection
+            contain_thr: Containment threshold (intersection/small_area)
+            area_ratio_thr: Maximum area ratio (small/big) for nested detection
+            empty_ratio_thr: Maximum non-bg ratio for considering rect empty
+            
+        Returns:
+            Filtered list without nested empty rectangles
+        """
+        if len(rects) <= 1 or img_bgr is None:
+            return rects
+        
+        scale = w / page_point_size.width() if page_point_size.width() > 0 else 1.0
+        
+        # Convert BGR to avoid repeated conversions
+        img_lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2Lab).astype(np.float32)
+        
+        to_remove = set()
+        
+        # Check all pairs
+        for i, small in enumerate(rects):
+            if i in to_remove:
+                continue
+            
+            small_area = small.width() * small.height()
+            
+            for j, big in enumerate(rects):
+                if i == j or j in to_remove:
+                    continue
+                
+                big_area = big.width() * big.height()
+                
+                # Skip if not nested (small must be smaller)
+                if small_area >= big_area:
+                    continue
+                
+                # Check area ratio
+                area_ratio = small_area / big_area if big_area > 0 else 0
+                if area_ratio > area_ratio_thr:
+                    continue
+                
+                # Calculate intersection
+                inter = small.intersected(big)
+                if inter.isEmpty():
+                    continue
+                
+                inter_area = inter.width() * inter.height()
+                containment = inter_area / small_area if small_area > 0 else 0
+                
+                # If highly contained
+                if containment >= contain_thr:
+                    # Check if small rect is mostly empty (background)
+                    x = int(small.left() * scale)
+                    y = int(small.top() * scale)
+                    rw = int(small.width() * scale)
+                    rh = int(small.height() * scale)
+                    
+                    # Clamp to bounds
+                    x = max(0, min(x, w - 1))
+                    y = max(0, min(y, h - 1))
+                    rw = max(1, min(rw, w - x))
+                    rh = max(1, min(rh, h - y))
+                    
+                    # Extract ROI
+                    roi_bgr = img_bgr[y:y+rh, x:x+rw]
+                    
+                    if roi_bgr.size == 0:
+                        continue
+                    
+                    # Calculate non-background ratio
+                    non_bg = _non_bg_ratio(roi_bgr, bg_lab, delta)
+                    
+                    if non_bg < empty_ratio_thr:
+                        to_remove.add(i)
+                        pdebug(f"[Nested] Removed nested empty rect at ({small.left():.0f},{small.top():.0f}) "
+                              f"{small.width():.0f}x{small.height():.0f}pt: "
+                              f"containment={containment:.2f}, non_bg={non_bg:.3f}, "
+                              f"contained in ({big.left():.0f},{big.top():.0f}) {big.width():.0f}x{big.height():.0f}pt")
+                        break
+        
+        filtered = [r for i, r in enumerate(rects) if i not in to_remove]
+        
+        if len(to_remove) > 0:
+            pdebug(f"[Panels] nested-suppress: removed {len(to_remove)} rects")
+        
+        return filtered
+
     def _sort_by_reading_order(self, rects: List[QRectF]) -> List[QRectF]:
         """Sort rectangles by reading order (LTR or RTL)."""
         # First, group by rows (similar Y positions)
@@ -1333,9 +1815,175 @@ class PanelDetector:
             pdebug(f"  Fragment reduction: {len(fragments)} → {len(merged)}")
         
         return result
+    
+    def _save_debug_image(self, img: NDArray, filename: str) -> None:
+        """Save debug image to debug_output/ directory.
+        
+        Args:
+            img: Image array (grayscale or color)
+            filename: Output filename
+        """
+        import os
+        debug_dir = "debug_output"
+        os.makedirs(debug_dir, exist_ok=True)
+        out_path = os.path.join(debug_dir, filename)
+        cv2.imwrite(out_path, img)
+        pdebug(f"[Debug] Saved {out_path}")
+    
+    def _save_debug_gutters(self, gutter_mask: NDArray, h_lines: List[Tuple[int, int]], 
+                           v_lines: List[Tuple[int, int]], w: int, h: int, 
+                           filename: str) -> None:
+        """Save debug visualization of gutter lines overlaid on gutter mask.
+        
+        Args:
+            gutter_mask: Binary gutter mask (255=gutter, 0=background)
+            h_lines: List of (start, end) tuples for horizontal gutters
+            v_lines: List of (start, end) tuples for vertical gutters
+            w, h: Image dimensions
+            filename: Output filename
+        """
+        import os
+        debug_dir = "debug_output"
+        os.makedirs(debug_dir, exist_ok=True)
+        
+        # Downscale for visualization
+        max_dim = 1200
+        scale = min(1.0, max_dim / max(w, h))
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        
+        # Convert mask to BGR for visualization
+        mask_vis = cv2.resize(gutter_mask, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        img_vis = cv2.cvtColor(mask_vis, cv2.COLOR_GRAY2BGR)
+        
+        # Draw horizontal gutters in red (thick lines)
+        for y_start, y_end in h_lines:
+            y_start_scaled = int(y_start * scale)
+            y_end_scaled = int(y_end * scale)
+            y_mid = (y_start_scaled + y_end_scaled) // 2
+            cv2.line(img_vis, (0, y_mid), (new_w, y_mid), (0, 0, 255), 3)
+        
+        # Draw vertical gutters in blue (thick lines)
+        for x_start, x_end in v_lines:
+            x_start_scaled = int(x_start * scale)
+            x_end_scaled = int(x_end * scale)
+            x_mid = (x_start_scaled + x_end_scaled) // 2
+            cv2.line(img_vis, (x_mid, 0), (x_mid, new_h), (255, 0, 0), 3)
+        
+        out_path = os.path.join(debug_dir, filename)
+        cv2.imwrite(out_path, img_vis)
+        pdebug(f"[Debug] Saved {out_path}")
+    
+    def _save_debug_panels(self, img_bgr: NDArray, rects: List[QRectF], 
+                          w: int, h: int, page_point_size: QSizeF, 
+                          stage: str) -> None:
+        """Save debug visualization of panel rectangles.
+        
+        Args:
+            img_bgr: Original BGR image
+            rects: Panel rectangles in page points
+            w, h: Image dimensions in pixels
+            page_point_size: Page dimensions in points
+            stage: "before" or "after" (nested suppression)
+        """
+        import os
+        debug_dir = "debug_output"
+        os.makedirs(debug_dir, exist_ok=True)
+        
+        # Downscale for visualization
+        max_dim = 1200
+        scale = min(1.0, max_dim / max(w, h))
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        
+        img_vis = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        
+        # Scale factor from page points to pixels
+        pt_to_px = (w / page_point_size.width()) if page_point_size.width() > 0 else 1.0
+        
+        # Draw rectangles
+        for i, rect in enumerate(rects):
+            x = int(rect.left() * pt_to_px * scale)
+            y = int(rect.top() * pt_to_px * scale)
+            rw = int(rect.width() * pt_to_px * scale)
+            rh = int(rect.height() * pt_to_px * scale)
+            
+            # Draw rectangle in green
+            cv2.rectangle(img_vis, (x, y), (x + rw, y + rh), (0, 255, 0), 2)
+            
+            # Draw panel number
+            cv2.putText(img_vis, str(i + 1), (x + 5, y + 25),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        
+        filename = f"dbg_panels_{stage}.png"
+        out_path = os.path.join(debug_dir, filename)
+        cv2.imwrite(out_path, img_vis)
+        pdebug(f"[Debug] Saved {out_path}")
 
 
 # ========== Freeform Detection Functions (for complex layouts) ==========
+
+def _estimate_bg_lab(img_bgr: NDArray, border_pct: float = 0.04) -> NDArray:
+    """Estimate background color from image borders in Lab color space.
+    
+    Args:
+        img_bgr: Input image in BGR format
+        border_pct: Percentage of image dimensions to use for border sampling
+        
+    Returns:
+        Array of shape (3,) containing (L, a, b) median values
+    """
+    h, w = img_bgr.shape[:2]
+    border_size = max(int(min(h, w) * border_pct), 5)
+    
+    # Sample borders: top, bottom, left, right
+    samples = []
+    samples.append(img_bgr[0:border_size, :])  # Top
+    samples.append(img_bgr[h-border_size:h, :])  # Bottom
+    samples.append(img_bgr[:, 0:border_size])  # Left
+    samples.append(img_bgr[:, w-border_size:w])  # Right
+    
+    # Concatenate all border pixels
+    border_pixels = np.vstack([s.reshape(-1, 3) for s in samples])
+    
+    # Convert to Lab
+    border_lab = cv2.cvtColor(border_pixels.reshape(1, -1, 3).astype(np.uint8), cv2.COLOR_BGR2Lab)
+    border_lab = border_lab.reshape(-1, 3).astype(np.float32)
+    
+    # Compute median (robust to outliers)
+    bg_lab = np.median(border_lab, axis=0)
+    
+    return bg_lab
+
+
+def _non_bg_ratio(img_bgr_roi: NDArray, bg_lab: NDArray, delta: float = 12.0) -> float:
+    """Calculate ratio of non-background pixels in a ROI.
+    
+    Args:
+        img_bgr_roi: ROI in BGR format
+        bg_lab: Background color in Lab (shape (3,))
+        delta: Maximum Lab distance to be considered background
+        
+    Returns:
+        Ratio of pixels that are NOT background (0.0 to 1.0)
+    """
+    if img_bgr_roi.size == 0:
+        return 0.0
+    
+    # Convert ROI to Lab
+    roi_lab = cv2.cvtColor(img_bgr_roi, cv2.COLOR_BGR2Lab).astype(np.float32)
+    
+    # Compute Euclidean distance to background color
+    dist = np.linalg.norm(roi_lab - bg_lab, axis=2)
+    
+    # Non-background pixels are those far from bg color
+    non_bg = dist > delta
+    
+    # Return ratio
+    ratio = np.mean(non_bg)
+    
+    return float(ratio)
+
 
 def estimate_background_color_lab(img_bgr: NDArray, sample_pct: float = 0.03) -> Tuple[float, float, float]:
     """Estimate background color by sampling image borders in Lab color space.
@@ -1413,6 +2061,42 @@ def make_background_mask(img_bgr: NDArray, bg_lab: Tuple[float, float, float],
     return mask_bg
 
 
+def has_content(img_bgr: NDArray, region: PanelRegion, mask_bg: NDArray, 
+                min_content_ratio: float = 0.05) -> bool:
+    """Check if a region contains actual content (not just empty background).
+    
+    Args:
+        img_bgr: Input image in BGR format
+        region: Panel region to check
+        mask_bg: Background mask (255 = background, 0 = foreground)
+        min_content_ratio: Minimum ratio of non-background pixels required
+        
+    Returns:
+        True if region has sufficient content, False if mostly empty
+    """
+    x, y, w, h = region.bbox
+    
+    # Extract region from background mask
+    region_mask_bg = mask_bg[y:y+h, x:x+w]
+    
+    if region_mask_bg.size == 0:
+        return False
+    
+    # Count non-background pixels (foreground = content)
+    foreground_pixels = np.sum(region_mask_bg == 0)
+    total_pixels = region_mask_bg.size
+    
+    content_ratio = foreground_pixels / total_pixels
+    
+    # Region must have at least min_content_ratio of non-background pixels
+    has_enough_content = content_ratio >= min_content_ratio
+    
+    if not has_enough_content:
+        pdebug(f"[Freeform] Region at ({x},{y}) {w}x{h} rejected: content_ratio={content_ratio:.3f} < {min_content_ratio}")
+    
+    return has_enough_content
+
+
 def segment_panels_watershed(img_bgr: NDArray, mask_bg: NDArray, 
                              sure_fg_ratio: float = 0.45,
                              debug_paths: Optional[dict] = None) -> NDArray:
@@ -1488,18 +2172,23 @@ def segment_panels_watershed(img_bgr: NDArray, mask_bg: NDArray,
 
 
 def extract_panel_regions(markers: NDArray, img_shape: Tuple[int, int],
+                          img_bgr: NDArray, mask_bg: NDArray,
                           min_area_ratio: float = 0.01,
                           max_area_ratio: float = 0.95,
                           min_fill_ratio: float = 0.25,
+                          min_content_ratio: float = 0.05,
                           approx_eps_ratio: float = 0.01) -> List[PanelRegion]:
     """Extract and filter panel regions from watershed markers.
     
     Args:
         markers: Watershed output (labels)
         img_shape: Image dimensions (h, w)
+        img_bgr: Original image in BGR format (for content checking)
+        mask_bg: Background mask (for content checking)
         min_area_ratio: Minimum region area as fraction of image
         max_area_ratio: Maximum region area as fraction of image
         min_fill_ratio: Minimum fill ratio (area / bbox_area)
+        min_content_ratio: Minimum ratio of non-background pixels
         approx_eps_ratio: Epsilon for polygon approximation
         
     Returns:
@@ -1579,6 +2268,10 @@ def extract_panel_regions(markers: NDArray, img_shape: Tuple[int, int],
             touches_border=touches_border,
             centroid=(cx, cy)
         )
+        
+        # Filter empty regions (must have content)
+        if not has_content(img_bgr, region, mask_bg, min_content_ratio):
+            continue
         
         regions.append(region)
     

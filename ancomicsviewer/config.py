@@ -31,15 +31,17 @@ class DetectorConfig:
     # Base filter parameters (as fractions of page area/dimensions)
     min_area_pct: float = 0.008   # Minimum panel area (0.8% to catch very small panels)
     max_area_pct: float = 0.95    # Maximum panel area (exclude full-bleed)
-    min_fill_ratio: float = 0.50  # Minimum contour fill ratio (stricter to filter noise)
+    min_fill_ratio: float = 0.25  # Minimum contour fill ratio (permissive for gutter-detected panels)
     min_rect_px: int = 45         # Minimum panel dimension in pixels
     min_rect_frac: float = 0.05   # Minimum panel dimension as fraction of page
 
     # Gutter detection parameters
-    min_gutter_px: int = 5        # Minimum gutter thickness in pixels
+    min_gutter_px: int = 2        # Minimum gutter thickness in pixels (reduced for thin gutters)
     min_gutter_frac: float = 0.010  # Minimum gutter as fraction of block
     max_gutter_px_frac: float = 0.08  # Maximum gutter as fraction of block
-    gutter_cov_min: float = 0.85  # Minimum brightness coverage for gutter (stricter for better white space detection)
+    gutter_cov_min: float = 0.45  # Minimum brightness coverage for gutter (very permissive)
+    gutter_bright_percentile: int = 85  # Percentile of L-channel (lowered to catch more gutters)
+    gutter_grad_percentile: int = 55    # Percentile of gradient magnitude for uniformity
     edge_margin_frac: float = 0.02  # Margin from edges for gutter detection
 
     # Brightness-based split parameters
@@ -67,6 +69,10 @@ class DetectorConfig:
     min_fill_ratio_freeform: float = 0.15  # Minimum fill ratio for freeform regions (lowered)
     iou_merge_thr: float = 0.20   # IoU threshold for merging overlapping regions
     approx_eps_ratio: float = 0.01  # Epsilon ratio for polygon approximation
+    
+    # Lab-based empty panel filtering (for tinted/watercolor pages)
+    min_non_bg_ratio: float = 0.08  # Minimum ratio of non-background pixels (Lab distance > bg_delta)
+    min_dim_ratio: float = 0.12    # Minimum dimension ratio vs median (to filter thin/gutter panels)
 
     # Detection options
     use_canny_fallback: bool = True
@@ -95,6 +101,8 @@ class DetectorConfig:
             "min_gutter_frac": self.min_gutter_frac,
             "max_gutter_px_frac": self.max_gutter_px_frac,
             "gutter_cov_min": self.gutter_cov_min,
+            "gutter_bright_percentile": self.gutter_bright_percentile,
+            "gutter_grad_percentile": self.gutter_grad_percentile,
             "edge_margin_frac": self.edge_margin_frac,
             "light_col_rel": self.light_col_rel,
             "light_row_rel": self.light_row_rel,
@@ -114,6 +122,8 @@ class DetectorConfig:
             "min_fill_ratio_freeform": self.min_fill_ratio_freeform,
             "iou_merge_thr": self.iou_merge_thr,
             "approx_eps_ratio": self.approx_eps_ratio,
+            "min_non_bg_ratio": self.min_non_bg_ratio,
+            "min_dim_ratio": self.min_dim_ratio,
             "use_canny_fallback": self.use_canny_fallback,
             "use_freeform_fallback": self.use_freeform_fallback,
             "reading_rtl": self.reading_rtl,
