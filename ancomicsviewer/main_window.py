@@ -772,14 +772,6 @@ class ComicsView(QMainWindow):
         except Exception:
             pass
 
-        # Nudge zoom to force viewport/overlay to recalc with the current scale
-        try:
-            z = self.view.zoomFactor()
-            self.view.setZoomMode(QPdfView.ZoomMode.Custom)
-            self.view.setZoomFactor(z)
-        except Exception:
-            pass
-
         if self.document and self.view.pageNavigator().currentPage() == cur:
             self.view.set_panel_overlay(
                 rects_cached,
