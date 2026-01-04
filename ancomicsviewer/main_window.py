@@ -533,6 +533,8 @@ class ComicsView(QMainWindow):
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()  # Process pending layout events
             QTimer.singleShot(100, self._update_overlay_delayed)
+            # Always start with a full-page best-fit view when entering reading mode
+            self._show_full_then_first_panel(delay_ms=0, auto_first=False)
         else:
             self._update_overlay()
         
@@ -562,9 +564,21 @@ class ComicsView(QMainWindow):
                 self.statusBar().showMessage("No panels detected on this page", 2000)
                 return
 
-            self._panel_index = (self._panel_index + 1) % len(rects)
-            self._focus_panel(rects[self._panel_index])
-            pdebug(f"panel_next -> {self._panel_index + 1}/{len(rects)}")
+            if self._panel_index >= len(rects) - 1:
+                # Auto-advance to next page when at last panel
+                nav = self.view.pageNavigator()
+                cur = nav.currentPage()
+                if cur < self.document.pageCount() - 1:
+                    nav.jump(cur + 1, QPointF(0, 0))
+                    self._panel_index = -1  # will be set on page change
+                else:
+                    # Stay on last panel if no further pages
+                    self._panel_index = len(rects) - 1
+                    self._focus_panel(rects[self._panel_index])
+            else:
+                self._panel_index += 1
+                self._focus_panel(rects[self._panel_index])
+                pdebug(f"panel_next -> {self._panel_index + 1}/{len(rects)}")
 
         except Exception:
             pdebug(f"panel_next error:\n{traceback.format_exc()}")
@@ -737,8 +751,36 @@ class ComicsView(QMainWindow):
                 self._panel_index = -1
                 self._ensure_panels()
                 self._update_overlay()
+                # In reading mode: show full page best-fit, then auto-focus first panel after delay
+                self._show_full_then_first_panel(delay_ms=2000, auto_first=True)
         except Exception:
             pdebug(f"page_changed error:\n{traceback.format_exc()}")
+
+    def _show_full_then_first_panel(self, delay_ms: int = 2000, auto_first: bool = True) -> None:
+        """Show full-page best fit, then optionally focus the first panel after a delay."""
+        if not self.document:
+            return
+        cur = self.view.pageNavigator().currentPage()
+        self.view.setZoomMode(QPdfView.ZoomMode.FitInView)
+        # Refresh overlay after zoom change to keep debug contours aligned
+        self._update_overlay_delayed()
+        self._update_status()
+
+        if not auto_first:
+            return
+
+        rects = self._panel_cache.get(cur) or []
+        if not rects:
+            return
+
+        def focus_first_panel() -> None:
+            # Only focus if still on same page
+            if not self.document or self.view.pageNavigator().currentPage() != cur:
+                return
+            self._panel_index = 0
+            self._focus_panel(rects[0])
+
+        QTimer.singleShot(delay_ms, focus_first_panel)
 
     def _update_status(self) -> None:
         """Update status bar."""
