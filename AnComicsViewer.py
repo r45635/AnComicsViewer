@@ -44,12 +44,28 @@ from ancomicsviewer.dialogs import PanelTuningDialog
 from ancomicsviewer.config import PRESETS
 
 from PySide6.QtWidgets import QApplication
+import argparse
 
 
 def main() -> int:
     """Application entry point."""
+    parser = argparse.ArgumentParser(description="AnComicsViewer - PDF comics reader with panel detection")
+    parser.add_argument('--panel-mode', choices=['auto', 'classic_franco_belge', 'modern'],
+                       default='auto', help='Panel detection mode (default: auto)')
+    parser.add_argument('pdf_file', nargs='?', help='PDF file to open')
+    
+    args = parser.parse_args()
+    
+    # Store panel mode in environment for access by detector
+    os.environ['ANCOMICS_PANEL_MODE'] = args.panel_mode
+    
     app = QApplication(sys.argv)
     window = ComicsView()
+    
+    # Load PDF if specified
+    if args.pdf_file:
+        window.load_pdf(args.pdf_file)
+    
     window.show()
     return app.exec()
 

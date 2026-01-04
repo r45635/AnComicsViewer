@@ -62,7 +62,13 @@ class ComicsView(QMainWindow):
 
         # Configuration
         self._app_config = AppConfig()
-        self._detector_config = DetectorConfig(debug=self._app_config.debug_panels)
+        
+        # Read panel mode from environment if set
+        panel_mode = os.environ.get('ANCOMICS_PANEL_MODE', 'auto')
+        self._detector_config = DetectorConfig(
+            debug=self._app_config.debug_panels,
+            panel_mode=panel_mode
+        )
 
         # Core components
         self.document: Optional[QPdfDocument] = None

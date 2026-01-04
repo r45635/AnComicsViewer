@@ -290,6 +290,10 @@ class PanelDetector:
             rects = self._sort_by_reading_order(rects)
             pdebug(f"Reading order: RTL={self.config.reading_rtl}")
 
+            # Export decision context to JSON if debug mode
+            if self.config.debug and hasattr(self, '_decision_context'):
+                self._export_decision_json(self._decision_context, rects, w, h, page_point_size)
+
             return rects
 
         except Exception:
@@ -307,21 +311,286 @@ class PanelDetector:
             f"min_fill={c.min_fill_ratio:.2f} min_px={c.min_rect_px}",
             f"light_col={c.light_col_rel:.2f} light_row={c.light_row_rel:.2f}",
             f"gutter:min_px={c.min_gutter_px} cov>={c.gutter_cov_min:.2f}",
-            f"title:on={c.filter_title_rows} psk={c.proj_smooth_k}"
+            f"title:on={c.filter_title_rows} psk={c.proj_smooth_k}",
+            f"panel_mode={c.panel_mode}"
         )
+    
+    def _export_decision_json(self, decision_context: dict, rects: List[QRectF], 
+                              w: int, h: int, page_point_size: QSizeF) -> None:
+        """Export decision context to JSON file for debugging.
+        
+        Args:
+            decision_context: Dictionary with decision metrics
+            rects: Final detected panels
+            w, h: Image dimensions
+            page_point_size: Page dimensions in points
+        """
+        import json
+        import os
+        
+        # Prepare output directory
+        debug_dir = "debug_output"
+        os.makedirs(debug_dir, exist_ok=True)
+        
+        # Compute final metrics
+        final_coverage = self._rects_union_coverage(rects, w, h)
+        final_small_ratio = self._small_rect_ratio(rects, w, h)
+        final_margin_ratio = self._margin_rect_ratio(rects, w, h)
+        
+        # Build decision data
+        decision_data = {
+            "panel_mode_input": decision_context.get("panel_mode_input", "unknown"),
+            "panel_mode_used": decision_context.get("panel_mode_used", "unknown"),
+            "adaptive_initial_count": decision_context.get("adaptive_initial_count", 0),
+            "route_chosen": decision_context.get("route_chosen", "unknown"),
+            "freeform_triggered": decision_context.get("freeform_triggered", False),
+            "metrics": {
+                "final_count": len(rects),
+                "final_coverage": round(final_coverage, 3),
+                "final_small_ratio": round(final_small_ratio, 3),
+                "final_margin_ratio": round(final_margin_ratio, 3),
+            },
+            "candidates": {}
+        }
+        
+        # Add candidate metrics if available
+        if "adaptive_coverage" in decision_context:
+            decision_data["candidates"]["adaptive"] = {
+                "coverage": round(decision_context["adaptive_coverage"], 3),
+                "count": decision_context["adaptive_count"],
+            }
+        
+        if "freeform_coverage" in decision_context:
+            decision_data["candidates"]["freeform"] = {
+                "coverage": round(decision_context["freeform_coverage"], 3),
+                "count": decision_context["freeform_count"],
+                "mega_panel": decision_context.get("freeform_mega_panel", False),
+                "selected": decision_context.get("freeform_selected", False),
+            }
+        
+        # Write to file
+        decision_path = os.path.join(debug_dir, "decision.json")
+        try:
+            with open(decision_path, "w", encoding="utf-8") as f:
+                json.dump(decision_data, f, indent=2)
+            pdebug(f"[Decision] Exported to {decision_path}")
+        except Exception as e:
+            pdebug(f"[Decision] Failed to export: {e}")
 
+    def _classify_page_style(self, img_bgr: NDArray, rects_from_adaptive: List[QRectF], 
+                            w: int, h: int, debug: bool = False) -> str:
+        """Classify page style as classic_franco_belge or modern.
+        
+        Conservative classifier that prefers classic when uncertain to avoid regressions.
+        
+        Args:
+            img_bgr: Image in BGR format
+            rects_from_adaptive: Rectangles from adaptive route
+            w, h: Image dimensions
+            debug: Enable debug logging
+            
+        Returns:
+            "classic_franco_belge" or "modern"
+        """
+        page_area = w * h
+        rect_count = len(rects_from_adaptive)
+        
+        # a) Small rect ratio
+        small_count = sum(1 for r in rects_from_adaptive 
+                         if (r.width() * r.height()) < 0.01 * page_area)
+        small_ratio = small_count / rect_count if rect_count > 0 else 0.0
+        
+        # b) Margin rect ratio (page number/title fragments)
+        margin_count = 0
+        for rect in rects_from_adaptive:
+            in_top = rect.top() < 0.06 * h
+            in_bottom = (rect.top() + rect.height()) > 0.94 * h
+            if (in_top or in_bottom) and rect.height() < 0.12 * h:
+                margin_count += 1
+        margin_ratio = margin_count / rect_count if rect_count > 0 else 0.0
+        
+        # c) Gutter strength (quick check on downscaled)
+        # Count number of validated gutters
+        scale_for_gutter = 0.5
+        img_small = cv2.resize(img_bgr, (int(w * scale_for_gutter), int(h * scale_for_gutter)))
+        gray_small = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
+        
+        # Quick gutter detection (simplified)
+        h_proj = np.mean(gray_small, axis=1)
+        v_proj = np.mean(gray_small, axis=0)
+        
+        # Find bright stripes (gutters) - peaks in projection
+        h_threshold = np.percentile(h_proj, 85)
+        v_threshold = np.percentile(v_proj, 85)
+        
+        h_gutters = np.where(h_proj > h_threshold)[0]
+        v_gutters = np.where(v_proj > v_threshold)[0]
+        
+        # Count runs of consecutive gutter pixels (groups)
+        def count_runs(arr):
+            if len(arr) == 0:
+                return 0
+            runs = 1
+            for i in range(1, len(arr)):
+                if arr[i] - arr[i-1] > 3:  # Gap > 3 pixels = new run
+                    runs += 1
+            return runs
+        
+        gutter_count = count_runs(h_gutters) + count_runs(v_gutters)
+        
+        # d) Background tint score
+        # Estimate background from borders
+        border = 5
+        top_strip = img_bgr[:border, :]
+        bottom_strip = img_bgr[-border:, :]
+        left_strip = img_bgr[:, :border]
+        right_strip = img_bgr[:, -border:]
+        
+        border_pixels = np.vstack([
+            top_strip.reshape(-1, 3),
+            bottom_strip.reshape(-1, 3),
+            left_strip.reshape(-1, 3),
+            right_strip.reshape(-1, 3)
+        ])
+        
+        # Convert to Lab
+        border_lab = cv2.cvtColor(border_pixels.reshape(1, -1, 3).astype(np.uint8), 
+                                 cv2.COLOR_BGR2Lab).reshape(-1, 3).astype(np.float32)
+        
+        # Mean background color
+        bg_lab = np.mean(border_lab, axis=0)
+        
+        # Pure white in Lab ~ [100, 0, 0]
+        white_lab = np.array([100.0, 0.0, 0.0])
+        bg_tint_dist = np.linalg.norm(bg_lab - white_lab)
+        
+        # Classify
+        # Classic criteria: good gutter structure, not many small/margin rects, white background
+        is_classic = (
+            gutter_count >= 4 and
+            small_ratio < 0.25 and
+            3 <= rect_count <= 12 and
+            bg_tint_dist < 15.0  # Close to white
+        )
+        
+        result = "classic_franco_belge" if is_classic else "modern"
+        
+        if debug:
+            pdebug(f"[Classifier] rect_count={rect_count}, small_ratio={small_ratio:.3f}, "
+                  f"margin_ratio={margin_ratio:.3f}, gutter_count={gutter_count}, "
+                  f"bg_tint_dist={bg_tint_dist:.1f} => {result}")
+        
+        return result
+    
     def _try_detection_routes(
         self, gray: NDArray, L: NDArray, w: int, h: int, page_point_size: QSizeF, img_bgr: NDArray = None
     ) -> List[QRectF]:
-        """Try detection routes: adaptive first, then gutter-based, then hybrid, finally freeform fallback."""
-
+        """Try detection routes based on panel_mode: classic vs modern."""
+        
+        # Determine effective mode
+        panel_mode = self.config.panel_mode
+        
         # Primary route: adaptive threshold (works for Tintin-style with black borders)
         mask = self._adaptive_route(gray)
         rects = self._rects_from_mask(mask, w, h, page_point_size)
         pdebug(f"Adaptive route -> {len(rects)} rects")
         
+        # If auto mode, classify page style
+        if panel_mode == "auto":
+            panel_mode = self._classify_page_style(img_bgr, rects, w, h, self.config.debug)
+            pdebug(f"[Auto] Classified as: {panel_mode}")
+        
+        # Store decision context for debug output
+        self._decision_context = {
+            "panel_mode_input": self.config.panel_mode,
+            "panel_mode_used": panel_mode,
+            "adaptive_initial_count": len(rects),
+        }
+        
+        if panel_mode == "classic_franco_belge":
+            return self._classic_detection_policy(rects, gray, L, w, h, page_point_size, img_bgr)
+        else:  # modern
+            return self._modern_detection_policy(rects, gray, L, w, h, page_point_size, img_bgr)
+        
+        # If auto mode, classify page style
+        if panel_mode == "auto":
+            panel_mode = self._classify_page_style(img_bgr, rects, w, h, self.config.debug)
+            pdebug(f"[Auto] Classified as: {panel_mode}")
+        
+        # Store decision context for debug output
+        self._decision_context = {
+            "panel_mode_input": self.config.panel_mode,
+            "panel_mode_used": panel_mode,
+            "adaptive_initial_count": len(rects),
+        }
+        
+        if panel_mode == "classic_franco_belge":
+            return self._classic_detection_policy(rects, gray, L, w, h, page_point_size, img_bgr)
+        else:  # modern
+            return self._modern_detection_policy(rects, gray, L, w, h, page_point_size, img_bgr)
+    
+    def _classic_detection_policy(self, rects: List[QRectF], gray: NDArray, L: NDArray, 
+                                  w: int, h: int, page_point_size: QSizeF, 
+                                  img_bgr: NDArray = None) -> List[QRectF]:
+        """Classic Franco-Belge detection policy (Tintin-safe).
+        
+        - Use adaptive + gutter-based (existing safe behavior)
+        - Do NOT use header/footer strip removal
+        - Do NOT use freeform watershed
+        - Keep existing filtering
+        """
+        pdebug("[Policy] Using CLASSIC_FRANCO_BELGE mode")
+        
         # If adaptive found nothing or too few, try gutter-based detection
-        # (works for color-transition layouts like Grémillet)
+        if len(rects) < 3:
+            pdebug("Adaptive found few panels, trying gutter-based detection...")
+            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size, img_bgr)
+            pdebug(f"Gutter-based route -> {len(gutter_rects)} rects")
+            if len(gutter_rects) > len(rects):
+                rects = gutter_rects
+                self._decision_context["route_chosen"] = "gutter"
+                self._decision_context["gutter_count"] = len(gutter_rects)
+            else:
+                self._decision_context["route_chosen"] = "adaptive"
+        elif 3 <= len(rects) < 6:
+            # Moderate success - try to complement with gutter-based
+            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size, img_bgr)
+            pdebug(f"Gutter-based route (hybrid) -> {len(gutter_rects)} rects")
+            
+            # Only use gutter-based if it finds significantly more meaningful panels
+            if len(gutter_rects) >= 10 and len(gutter_rects) > len(rects) * 3:
+                pdebug(f"[Gutter] Too many rects ({len(gutter_rects)}) for {len(rects)} adaptive panels - likely marginal cells, skipping")
+                self._decision_context["route_chosen"] = "adaptive"
+            elif len(gutter_rects) > len(rects):
+                # Use gutter-based if it found more meaningful panels
+                if len(gutter_rects) - len(rects) >= 2:
+                    rects = gutter_rects
+                    self._decision_context["route_chosen"] = "gutter"
+                else:
+                    # Merge both, remove duplicates
+                    rects = self._merge_overlapping_rects(rects + gutter_rects)
+                    self._decision_context["route_chosen"] = "adaptive+gutter_merged"
+            else:
+                self._decision_context["route_chosen"] = "adaptive"
+        else:
+            self._decision_context["route_chosen"] = "adaptive"
+        
+        # Classic filtering only (no strip removal, no freeform)
+        return rects
+    
+    def _modern_detection_policy(self, rects: List[QRectF], gray: NDArray, L: NDArray, 
+                                w: int, h: int, page_point_size: QSizeF, 
+                                img_bgr: NDArray = None) -> List[QRectF]:
+        """Modern detection policy for watercolor/complex layouts.
+        
+        - Run adaptive + gutter-based
+        - Enable header/footer strip removal
+        - Always compute freeform if needed
+        - Use conservative selection with mega-panel prevention
+        """
+        pdebug("[Policy] Using MODERN mode")
+        
+        # Try gutter-based if adaptive is weak
         if len(rects) < 3:
             pdebug("Adaptive found few panels, trying gutter-based detection...")
             gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size, img_bgr)
@@ -329,27 +598,22 @@ class PanelDetector:
             if len(gutter_rects) > len(rects):
                 rects = gutter_rects
         elif 3 <= len(rects) < 6:
-            # Moderate success - try to complement with gutter-based
-            # This helps pages like Grémillet p6 and p8, but be careful
-            # not to replace good adaptive rects with gutter grid that has many empty cells
             gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size, img_bgr)
             pdebug(f"Gutter-based route (hybrid) -> {len(gutter_rects)} rects")
             
-            # Only use gutter-based if it finds significantly more meaningful panels
-            # Check if gutter grid would produce a large number of small/empty cells
             if len(gutter_rects) >= 10 and len(gutter_rects) > len(rects) * 3:
-                # Too many rects for a few content areas - likely creating grid with many empty cells
-                pdebug(f"[Gutter] Too many rects ({len(gutter_rects)}) for {len(rects)} adaptive panels - likely marginal cells, skipping")
+                pdebug(f"[Gutter] Too many rects ({len(gutter_rects)}) - skipping")
             elif len(gutter_rects) > len(rects):
-                # Use gutter-based if it found more meaningful panels
                 if len(gutter_rects) - len(rects) >= 2:
                     rects = gutter_rects
                 else:
-                    # Merge both, remove duplicates
                     rects = self._merge_overlapping_rects(rects + gutter_rects)
         
-        # Apply stricter cleanup to adaptive rects before scoring
+        # Apply header/footer strip removal (modern only)
         rects = self._remove_header_footer_strips(rects, h)
+        
+        # Store pre-freeform candidate
+        adaptive_candidate = rects
         
         # Check if freeform fallback is needed
         if self.config.use_freeform_fallback:
@@ -363,20 +627,30 @@ class PanelDetector:
             elif len(rects) > 0:
                 max_rect_area = max(r.width() * r.height() for r in rects)
                 max_ratio = max_rect_area / page_area
-                if max_ratio > 0.50:  # Lowered from 0.60 to catch more cases
+                if max_ratio > 0.50:
                     needs_freeform = True
                     reason = f"single large panel covering {max_ratio*100:.1f}% of page"
+                
+                # Also check for many small rects or weak gutters
+                small_ratio = self._small_rect_ratio(rects, w, h)
+                coverage = self._rects_union_coverage(rects, w, h)
+                if small_ratio > 0.40 or coverage < 0.45:
+                    needs_freeform = True
+                    reason = f"weak adaptive: small_ratio={small_ratio:.2f}, coverage={coverage:.2f}"
             
             if needs_freeform:
                 pdebug(f"[Freeform] Triggering fallback: {reason}")
                 
                 # Convert grayscale to BGR for freeform processing
-                gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) if img_bgr is None else img_bgr
                 
                 freeform_rects = self._freeform_detection(gray_bgr, w, h, page_point_size)
                 
-                # Use conservative scoring to decide between adaptive and freeform
-                rects = self._select_best_route(rects, freeform_rects, w, h)
+                # Use modern selection with mega-panel prevention
+                rects = self._select_best_route_modern(adaptive_candidate, freeform_rects, w, h, page_area)
+            else:
+                self._decision_context["route_chosen"] = "adaptive/gutter"
+                self._decision_context["freeform_triggered"] = False
         
         return rects
 
@@ -526,6 +800,85 @@ class PanelDetector:
         else:
             pdebug(f"[Selection] Keeping ADAPTIVE: score={adaptive_score:.3f} vs {freeform_score:.3f}, "
                   f"freeform coverage={freeform_coverage:.3f}, count={freeform_count}")
+            return adaptive_rects
+    
+    def _select_best_route_modern(self, adaptive_rects: List[QRectF], freeform_rects: List[QRectF], 
+                                  w: int, h: int, page_area: float) -> List[QRectF]:
+        """Select best route for modern mode with mega-panel prevention.
+        
+        Prefer freeform ONLY if:
+        - No mega-panel collapse (prevents 1-2 huge panels)
+        - Candidate is valid (coverage >= 0.55, count 2-12, small_ratio < 0.60)
+        - Improves coverage or reduces small_ratio significantly
+        """
+        if not freeform_rects:
+            pdebug("[Modern Selection] Freeform empty, keeping adaptive")
+            self._decision_context["route_chosen"] = "adaptive"
+            self._decision_context["freeform_triggered"] = True
+            self._decision_context["freeform_selected"] = False
+            return adaptive_rects
+        
+        if not adaptive_rects:
+            pdebug("[Modern Selection] Adaptive empty, using freeform")
+            self._decision_context["route_chosen"] = "freeform"
+            self._decision_context["freeform_triggered"] = True
+            self._decision_context["freeform_selected"] = True
+            return freeform_rects
+        
+        # Compute metrics
+        adaptive_coverage = self._rects_union_coverage(adaptive_rects, w, h)
+        adaptive_small_ratio = self._small_rect_ratio(adaptive_rects, w, h)
+        adaptive_count = len(adaptive_rects)
+        
+        freeform_coverage = self._rects_union_coverage(freeform_rects, w, h)
+        freeform_small_ratio = self._small_rect_ratio(freeform_rects, w, h)
+        freeform_count = len(freeform_rects)
+        
+        # Check for mega-panel collapse
+        has_mega_panel = False
+        if freeform_count <= 2:
+            for rect in freeform_rects:
+                rect_area = rect.width() * rect.height()
+                if rect_area / page_area > 0.60:
+                    has_mega_panel = True
+                    break
+        
+        # Candidate validity check
+        freeform_valid = (
+            freeform_coverage >= 0.55 and
+            2 <= freeform_count <= 12 and
+            freeform_small_ratio < 0.60
+        )
+        
+        # Decision criteria
+        use_freeform = (
+            freeform_valid and
+            not has_mega_panel and
+            (freeform_coverage >= adaptive_coverage + 0.07 or 
+             freeform_small_ratio <= adaptive_small_ratio - 0.15)
+        )
+        
+        if self.config.debug:
+            pdebug(f"[Modern Selection] Adaptive: coverage={adaptive_coverage:.3f}, count={adaptive_count}, small_ratio={adaptive_small_ratio:.3f}")
+            pdebug(f"[Modern Selection] Freeform: coverage={freeform_coverage:.3f}, count={freeform_count}, small_ratio={freeform_small_ratio:.3f}")
+            pdebug(f"[Modern Selection] Mega-panel={has_mega_panel}, valid={freeform_valid}, use_freeform={use_freeform}")
+        
+        self._decision_context["freeform_triggered"] = True
+        self._decision_context["adaptive_coverage"] = adaptive_coverage
+        self._decision_context["adaptive_count"] = adaptive_count
+        self._decision_context["freeform_coverage"] = freeform_coverage
+        self._decision_context["freeform_count"] = freeform_count
+        self._decision_context["freeform_mega_panel"] = has_mega_panel
+        
+        if use_freeform:
+            pdebug(f"[Modern Selection] Using FREEFORM")
+            self._decision_context["route_chosen"] = "freeform"
+            self._decision_context["freeform_selected"] = True
+            return freeform_rects
+        else:
+            pdebug(f"[Modern Selection] Keeping ADAPTIVE")
+            self._decision_context["route_chosen"] = "adaptive"
+            self._decision_context["freeform_selected"] = False
             return adaptive_rects
     
     def _merge_overlapping_rects(self, rects: List[QRectF]) -> List[QRectF]:

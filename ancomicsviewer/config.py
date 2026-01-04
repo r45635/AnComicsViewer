@@ -84,6 +84,7 @@ class DetectorConfig:
     use_canny_fallback: bool = True
     use_freeform_fallback: bool = True  # Enable freeform/watershed fallback
     reading_rtl: bool = False     # Right-to-left reading order (manga)
+    panel_mode: str = "auto"      # Detection mode: "auto", "classic_franco_belge", "modern"
     debug: bool = False
 
     def copy(self) -> "DetectorConfig":
@@ -136,6 +137,7 @@ class DetectorConfig:
             "use_canny_fallback": self.use_canny_fallback,
             "use_freeform_fallback": self.use_freeform_fallback,
             "reading_rtl": self.reading_rtl,
+            "panel_mode": self.panel_mode,
             "debug": self.debug,
         }
 
