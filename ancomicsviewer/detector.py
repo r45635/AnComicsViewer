@@ -163,7 +163,7 @@ class PanelDetector:
             pdebug(f"[Panels] bg_lab=({bg_lab[0]:.1f}, {bg_lab[1]:.1f}, {bg_lab[2]:.1f})")
 
             # Try detection routes in order
-            rects = self._try_detection_routes(gray, L, w, h, page_point_size)
+            rects = self._try_detection_routes(gray, L, w, h, page_point_size, img_bgr)
 
             # Filter title rows (top 35% of page)
             if rects and self.config.filter_title_rows:
@@ -212,7 +212,7 @@ class PanelDetector:
                     if roi_bgr.size == 0:
                         continue
                     
-                    non_bg = _non_bg_ratio(roi_bgr, bg_lab, delta=self.config.bg_delta)
+                    non_bg = _non_bg_ratio(roi_bgr, bg_lab, delta=self.config.freeform_bg_delta)
                     
                     # Filter if too empty (mostly background)
                     if non_bg < self.config.min_non_bg_ratio:
@@ -242,7 +242,7 @@ class PanelDetector:
                     self._save_debug_panels(img_bgr, rects, w, h, page_point_size, "before")
                 
                 rects = self._suppress_nested_rects(rects, img_bgr, bg_lab, w, h, page_point_size,
-                                                    delta=self.config.bg_delta)
+                                                    delta=self.config.freeform_bg_delta)
                 pdebug(f"After nested suppression -> {len(rects)} rects")
                 
                 # Save debug image after nested suppression if debug mode
@@ -274,7 +274,7 @@ class PanelDetector:
         )
 
     def _try_detection_routes(
-        self, gray: NDArray, L: NDArray, w: int, h: int, page_point_size: QSizeF
+        self, gray: NDArray, L: NDArray, w: int, h: int, page_point_size: QSizeF, img_bgr: NDArray = None
     ) -> List[QRectF]:
         """Try detection routes: adaptive first, then gutter-based, then hybrid, finally freeform fallback."""
 
@@ -287,7 +287,7 @@ class PanelDetector:
         # (works for color-transition layouts like Grémillet)
         if len(rects) < 3:
             pdebug("Adaptive found few panels, trying gutter-based detection...")
-            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size)
+            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size, img_bgr)
             pdebug(f"Gutter-based route -> {len(gutter_rects)} rects")
             if len(gutter_rects) > len(rects):
                 rects = gutter_rects
@@ -295,7 +295,7 @@ class PanelDetector:
             # Moderate success - try to complement with gutter-based
             # This helps pages like Grémillet p6 and p8, but be careful
             # not to replace good adaptive rects with gutter grid that has many empty cells
-            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size)
+            gutter_rects = self._gutter_based_detection(gray, L, w, h, page_point_size, img_bgr)
             pdebug(f"Gutter-based route (hybrid) -> {len(gutter_rects)} rects")
             
             # Only use gutter-based if it finds significantly more meaningful panels
@@ -412,7 +412,7 @@ class PanelDetector:
         
         mask_bg = make_background_mask(
             img_bgr, bg_lab, 
-            delta=self.config.bg_delta,
+            delta=self.config.freeform_bg_delta,
             debug_path=debug_paths.get('bg_mask')
         )
         
@@ -535,9 +535,171 @@ class PanelDetector:
         dil = cv2.dilate(edges, kernel, iterations=2)
         return cv2.morphologyEx(dil, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-    def _make_gutter_mask(self, gray: NDArray, L: NDArray) -> NDArray:
+    def _estimate_gutter_bg_lab(self, img_bgr: NDArray, border_pct: float = 0.04) -> NDArray:
+        """Estimate background color from image borders in Lab color space.
+        
+        Samples the border regions (top, bottom, left, right) and returns median Lab values.
+        Used for gutter detection on watercolor/tinted pages.
+        
+        Args:
+            img_bgr: Input image in BGR format
+            border_pct: Percentage of image dimensions to sample
+            
+        Returns:
+            Array of shape (3,) containing median (L, a, b) values
+        """
+        h, w = img_bgr.shape[:2]
+        border_size = max(int(min(h, w) * border_pct), 5)
+        
+        # Sample borders
+        samples = []
+        samples.append(img_bgr[0:border_size, :])  # Top
+        samples.append(img_bgr[h-border_size:h, :])  # Bottom
+        samples.append(img_bgr[:, 0:border_size])  # Left
+        samples.append(img_bgr[:, w-border_size:w])  # Right
+        
+        # Concatenate and convert to Lab
+        border_pixels = np.vstack([s.reshape(-1, 3) for s in samples])
+        border_lab = cv2.cvtColor(border_pixels.reshape(1, -1, 3).astype(np.uint8), cv2.COLOR_BGR2Lab)
+        border_lab = border_lab.reshape(-1, 3).astype(np.float32)
+        
+        # Return median (robust to outliers)
+        bg_lab = np.median(border_lab, axis=0)
+        
+        if self.config.debug:
+            pdebug(f"[gutter_bg] Sampled {len(border_lab)} border pixels, bg_lab=({bg_lab[0]:.1f}, {bg_lab[1]:.1f}, {bg_lab[2]:.1f})")
+        
+        return bg_lab
+
+    def _filter_connected_components_stripes(self, mask: NDArray, w: int, h: int) -> NDArray:
+        """Filter connected components to keep only stripe-like structures (gutters).
+        
+        Removes blobs that are too square or too small. Keeps only:
+        - Horizontal stripes: width >= w*0.20, height <= min_stripe_width
+        - Vertical stripes: height >= h*0.20, width <= min_stripe_width
+        
+        Args:
+            mask: Binary mask (255=candidate gutter, 0=background)
+            w, h: Image dimensions
+            
+        Returns:
+            Filtered mask with only stripe-like components
+        """
+        c = self.config
+        min_stripe_w = c.gutter_min_stripe_width  # default: 25px
+        min_length_frac = c.gutter_stripe_length_frac  # default: 0.20
+        
+        min_h_stripe_len = int(w * min_length_frac)
+        min_v_stripe_len = int(h * min_length_frac)
+        
+        # Find connected components
+        num_labels, labels = cv2.connectedComponents(mask)
+        result = np.zeros_like(mask)
+        
+        for label_id in range(1, num_labels):
+            component_mask = (labels == label_id).astype(np.uint8) * 255
+            x, y, cw, ch = cv2.boundingRect(component_mask)
+            
+            # Keep if it's a long thin horizontal stripe
+            if cw >= min_h_stripe_len and ch <= min_stripe_w:
+                result[component_mask > 0] = 255
+                if self.config.debug:
+                    pdebug(f"[gutter_cc] Keep h-stripe: {cw}x{ch}px")
+            # Keep if it's a long thin vertical stripe
+            elif ch >= min_v_stripe_len and cw <= min_stripe_w:
+                result[component_mask > 0] = 255
+                if self.config.debug:
+                    pdebug(f"[gutter_cc] Keep v-stripe: {cw}x{ch}px")
+            else:
+                if self.config.debug and label_id < 5:
+                    pdebug(f"[gutter_cc] Reject blob: {cw}x{ch}px")
+        
+        return result
+
+    def _make_gutter_mask(self, gray: NDArray, L: NDArray, img_bgr: NDArray = None) -> NDArray:
         """Build a robust gutter mask using brightness + gradient uniformity.
         
+        Identifies gutters as pixels that are BOTH very bright AND locally uniform
+        (low gradient). This avoids picking up bright regions inside panels.
+        
+        Uses configurable percentile thresholds for robustness across different page styles:
+        - gutter_bright_percentile (default 94): Higher percentile = stricter brightness requirement
+        - gutter_grad_percentile (default 50): Lower percentile = stricter uniformity requirement
+        
+        Args:
+            gray: Grayscale image
+            L: LAB L-channel
+            img_bgr: Color image (optional, not used currently)
+            
+        Returns:
+            uint8 gutter mask (0=not gutter, 255=gutter)
+        """
+        h, w = L.shape
+        
+        # Adaptive brightness threshold: use high percentile (gutters are very bright)
+        bright_percentile = getattr(self.config, 'gutter_bright_percentile', 94)
+        bright_thresh = np.percentile(L, bright_percentile)
+        
+        # Compute gradient magnitude (Sobel)
+        # Gutters are uniform (low gradient), highlights/text have high gradient
+        grad_x = cv2.Sobel(L, cv2.CV_32F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(L, cv2.CV_32F, 0, 1, ksize=3)
+        grad_mag = np.abs(grad_x) + np.abs(grad_y)
+        
+        # Adaptive gradient threshold: use low percentile (gutters have low edges)
+        grad_percentile = self.config.gutter_grad_percentile  # default: 25
+        grad_low = np.percentile(grad_mag, grad_percentile)
+        
+        if self.config.debug:
+            pdebug(f"[gutter_mask] bright_thresh (p{bright_percentile})={bright_thresh:.1f}")
+            pdebug(f"[gutter_mask] grad_low (p{grad_percentile})={grad_low:.1f}")
+        
+        # Combine: both bright AND uniform
+        bright_mask = (L >= bright_thresh).astype(np.uint8) * 255
+        uniform_mask = (grad_mag <= grad_low).astype(np.uint8) * 255
+        gutter_mask = cv2.bitwise_and(bright_mask, uniform_mask)
+        
+        # 4. Apply morphological opening with elongated kernels to enforce stripe structure
+        open_kernel_len = max(int(w * self.config.gutter_open_kernel_frac), 21)  # default: 25% of width
+        
+        # Horizontal opening (removes vertical blobs)
+        h_kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (open_kernel_len, 3))
+        h_open = cv2.morphologyEx(gutter_mask, cv2.MORPH_OPEN, h_kernel_open, iterations=1)
+        
+        # Vertical opening (removes horizontal blobs)
+        v_kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, open_kernel_len))
+        v_open = cv2.morphologyEx(gutter_mask, cv2.MORPH_OPEN, v_kernel_open, iterations=1)
+        
+        # Combine both
+        gutter_mask = cv2.bitwise_or(h_open, v_open)
+        
+        # 5. Small closing to reconnect small gaps
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+        gutter_mask = cv2.morphologyEx(gutter_mask, cv2.MORPH_CLOSE, close_kernel, iterations=1)
+        
+        # 6. Filter connected components to keep only stripe-like structures
+        gutter_mask = self._filter_connected_components_stripes(gutter_mask, w, h)
+        
+        # 7. Debug output
+        white_ratio = cv2.countNonZero(gutter_mask) / gutter_mask.size
+        pdebug(f"[gutter_mask] white_ratio={white_ratio:.4f} (target: < 0.08)")
+        
+        if white_ratio > 0.15:
+            pdebug(f"[gutter_mask] WARNING: white_ratio too high ({white_ratio:.4f}), likely false positives!")
+        
+        if self.config.debug:
+            import os
+            debug_dir = "debug_output"
+            os.makedirs(debug_dir, exist_ok=True)
+            cv2.imwrite(os.path.join(debug_dir, "dbg_gutter_mask.png"), gutter_mask)
+            pdebug(f"[gutter_mask] Saved debug_output/dbg_gutter_mask.png")
+        
+        return gutter_mask
+
+    def _make_gutter_mask_old(self, gray: NDArray, L: NDArray) -> NDArray:
+        """Old gutter mask (deprecated - kept for reference).
+        
+        Build a robust gutter mask using brightness + gradient uniformity.
         Identifies gutters as pixels that are BOTH very bright AND locally uniform
         (low gradient). This avoids picking up bright regions inside panels.
         
@@ -554,7 +716,7 @@ class PanelDetector:
         # Default: 94th percentile of L values
         L_percentile = getattr(self.config, 'gutter_bright_percentile', 94)
         L_high = np.percentile(L, L_percentile)
-        pdebug(f"[gutter_mask] L_high (p{L_percentile})={L_high:.1f}")
+        pdebug(f"[gutter_mask_old] L_high (p{L_percentile})={L_high:.1f}")
         
         # Compute gradient magnitude (Sobel)
         # Gutters are uniform (low gradient), highlights/text have high gradient
@@ -566,7 +728,7 @@ class PanelDetector:
         # Default: 50th percentile (median) or lower
         grad_percentile = getattr(self.config, 'gutter_grad_percentile', 50)
         grad_low = np.percentile(grad_mag, grad_percentile)
-        pdebug(f"[gutter_mask] grad_low (p{grad_percentile})={grad_low:.1f}")
+        pdebug(f"[gutter_mask_old] grad_low (p{grad_percentile})={grad_low:.1f}")
         
         # Combine: both bright AND uniform
         bright_mask = (L >= L_high).astype(np.uint8) * 255
@@ -659,7 +821,8 @@ class PanelDetector:
         L: NDArray, 
         w: int, 
         h: int, 
-        page_point_size: QSizeF
+        page_point_size: QSizeF,
+        img_bgr: NDArray = None
     ) -> List[QRectF]:
         """Detect panels by finding gutters (white/light separations between panels).
         
@@ -670,7 +833,7 @@ class PanelDetector:
         c = self.config
         
         # Build robust gutter mask: bright + uniform (low gradient)
-        gutter_mask = self._make_gutter_mask(gray, L)
+        gutter_mask = self._make_gutter_mask(gray, L, img_bgr)
         
         # Save debug image of gutter mask if debug mode
         if self.config.debug:

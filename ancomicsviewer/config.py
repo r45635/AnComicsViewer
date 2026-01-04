@@ -35,13 +35,19 @@ class DetectorConfig:
     min_rect_px: int = 45         # Minimum panel dimension in pixels
     min_rect_frac: float = 0.05   # Minimum panel dimension as fraction of page
 
-    # Gutter detection parameters
-    min_gutter_px: int = 2        # Minimum gutter thickness in pixels (reduced for thin gutters)
+    # Gutter detection parameters (background-similarity based)
+    min_gutter_px: int = 2        # Minimum gutter thickness in pixels
     min_gutter_frac: float = 0.010  # Minimum gutter as fraction of block
     max_gutter_px_frac: float = 0.08  # Maximum gutter as fraction of block
-    gutter_cov_min: float = 0.45  # Minimum brightness coverage for gutter (very permissive)
-    gutter_bright_percentile: int = 85  # Percentile of L-channel (lowered to catch more gutters)
-    gutter_grad_percentile: int = 55    # Percentile of gradient magnitude for uniformity
+    gutter_cov_min: float = 0.45  # Minimum brightness coverage for gutter validation
+    
+    # Background similarity mask (for watercolor pages like Grémillet)
+    gutter_bg_delta: float = 12.0        # Lab distance threshold for background mask (10-14 recommended)
+    gutter_grad_percentile: int = 25    # Percentile of gradient (20-30 recommended, was 55)
+    gutter_open_kernel_frac: float = 0.25  # Opening kernel size as fraction of image dimension
+    gutter_min_stripe_width: int = 25  # Max width/height for stripe filtering (pixels)
+    gutter_stripe_length_frac: float = 0.20  # Min length as fraction of image dimension
+    
     edge_margin_frac: float = 0.02  # Margin from edges for gutter detection
 
     # Brightness-based split parameters
@@ -63,7 +69,7 @@ class DetectorConfig:
     max_panels_per_page: int = 24  # Safety limit
 
     # Freeform detection parameters (for complex layouts/tinted backgrounds)
-    bg_delta: float = 15.0        # Lab color distance threshold for background detection (increased for tolerance)
+    freeform_bg_delta: float = 15.0  # Lab color distance threshold for freeform watershed
     sure_fg_ratio: float = 0.35   # Ratio of max distance for sure foreground in watershed (lowered for more seeds)
     min_area_ratio_freeform: float = 0.005  # Minimum panel area ratio for freeform detection (lowered)
     min_fill_ratio_freeform: float = 0.15  # Minimum fill ratio for freeform regions (lowered)
@@ -116,10 +122,15 @@ class DetectorConfig:
             "title_row_big_w_min_frac": self.title_row_big_w_min_frac,
             "title_row_min_meanL": self.title_row_min_meanL,
             "max_panels_per_page": self.max_panels_per_page,
-            "bg_delta": self.bg_delta,
+            "freeform_bg_delta": self.freeform_bg_delta,
             "sure_fg_ratio": self.sure_fg_ratio,
             "min_area_ratio_freeform": self.min_area_ratio_freeform,
             "min_fill_ratio_freeform": self.min_fill_ratio_freeform,
+            "gutter_bg_delta": self.gutter_bg_delta,
+            "gutter_grad_percentile": self.gutter_grad_percentile,
+            "gutter_open_kernel_frac": self.gutter_open_kernel_frac,
+            "gutter_min_stripe_width": self.gutter_min_stripe_width,
+            "gutter_stripe_length_frac": self.gutter_stripe_length_frac,
             "iou_merge_thr": self.iou_merge_thr,
             "approx_eps_ratio": self.approx_eps_ratio,
             "min_non_bg_ratio": self.min_non_bg_ratio,
