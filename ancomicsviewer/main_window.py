@@ -32,6 +32,9 @@ from PySide6.QtWidgets import (
     QToolButton,
     QWidget,
     QMenu,
+    QProgressBar,
+    QLabel,
+    QHBoxLayout,
 )
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
@@ -43,6 +46,8 @@ from .pdf_view import PannablePdfView
 from .dialogs import PanelTuningDialog
 from .cache import PanelCache
 from .image_utils import pdebug
+from .async_detection import AsyncDetectionManager, DetectionTask, DetectionResult
+from .panel_editor import PanelCorrections
 
 
 class ComicsView(QMainWindow):
@@ -78,6 +83,13 @@ class ComicsView(QMainWindow):
         # Detector with threading support
         self._detector = PanelDetector(self._detector_config)
 
+        # Async detection manager
+        self._async_detection = AsyncDetectionManager(self._detector_config)
+        self._async_detection.detection_started.connect(self._on_detection_started)
+        self._async_detection.detection_progress.connect(self._on_detection_progress)
+        self._async_detection.detection_finished.connect(self._on_detection_finished)
+        self._async_detection.detection_error.connect(self._on_detection_error)
+
         # State
         self._current_path: Optional[str] = None
         self._panel_mode = False
@@ -87,17 +99,29 @@ class ComicsView(QMainWindow):
         # Background detection future
         self._detection_future: Optional[Future] = None
 
+        # Detection feedback widgets
+        self._progress_bar: Optional[QProgressBar] = None
+        self._status_label: Optional[QLabel] = None
+        self._detection_pending: set = set()  # Pages currently being detected
+
+        # Panel corrections manager
+        self._panel_corrections = PanelCorrections()
+
         # Drag & drop
         self.setAcceptDrops(True)
 
         # Build UI
         self._build_toolbar()
-        self.setStatusBar(QStatusBar(self))
+        self._build_status_bar()
         self._update_status()
 
         # Connect signals
         self.view.pageNavigator().currentPageChanged.connect(self._on_page_changed)
         self.view.pageNavigator().currentPageChanged.connect(self._update_status)
+
+        # Connect panel editing signals
+        self.view.panels_modified.connect(self._on_panels_modified)
+        self.view.edit_mode_changed.connect(self._on_edit_mode_changed)
 
         # Auto-load sample PDF if available
         self._auto_load_sample()
@@ -238,6 +262,15 @@ class ComicsView(QMainWindow):
 
         menu.addSeparator()
 
+        # Panel editing
+        edit_menu = menu.addMenu("Panel editing")
+        act_edit = edit_menu.addAction("Toggle edit mode (E)")
+        act_edit.triggered.connect(self._toggle_edit_mode)
+        act_revert = edit_menu.addAction("Revert corrections (this page)")
+        act_revert.triggered.connect(self._revert_panel_corrections)
+
+        menu.addSeparator()
+
         # Advanced tuning
         adv = menu.addAction("Advanced tuning…")
         adv.triggered.connect(self._open_tuning_dialog)
@@ -292,22 +325,194 @@ class ComicsView(QMainWindow):
         ))
         self.addAction(act_cycle)
 
+    def _build_status_bar(self) -> None:
+        """Build enhanced status bar with progress indicator."""
+        status_bar = QStatusBar(self)
+        self.setStatusBar(status_bar)
+
+        # Create a container widget for custom status elements
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        # Status label for detection feedback
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(self._status_label)
+
+        # Progress bar (hidden by default)
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setFixedWidth(120)
+        self._progress_bar.setFixedHeight(16)
+        self._progress_bar.setTextVisible(False)
+        self._progress_bar.setVisible(False)
+        self._progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background: #f0f0f0;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4CAF50, stop:1 #8BC34A);
+                border-radius: 3px;
+            }
+        """)
+        layout.addWidget(self._progress_bar)
+
+        status_bar.addPermanentWidget(container)
+
+    # ========== Detection Feedback Handlers ==========
+
+    def _on_detection_started(self, page_num: int) -> None:
+        """Handle detection start."""
+        self._detection_pending.add(page_num)
+        self._update_detection_feedback(page_num, "Détection...", 0)
+
+    def _on_detection_progress(self, page_num: int, stage: str, percent: int) -> None:
+        """Handle detection progress update."""
+        self._update_detection_feedback(page_num, stage, percent)
+
+    def _on_detection_finished(self, result: DetectionResult) -> None:
+        """Handle detection completion."""
+        page_num = result.page_num
+        self._detection_pending.discard(page_num)
+
+        if result.success:
+            # Cache the results
+            self._panel_cache.put(page_num, result.panels)
+
+            # Update overlay if this is the current page
+            cur = self.view.pageNavigator().currentPage()
+            if page_num == cur and self._panel_mode:
+                self._update_overlay()
+
+            msg = f"Page {page_num + 1}: {len(result.panels)} cases ({result.elapsed_ms:.0f}ms)"
+            self._show_detection_complete(msg)
+        else:
+            self._show_detection_error(f"Page {page_num + 1}: {result.error_message}")
+
+        # Hide progress if no more pending
+        if not self._detection_pending:
+            self._hide_detection_feedback()
+
+    def _on_detection_error(self, page_num: int, error_msg: str) -> None:
+        """Handle detection error."""
+        self._detection_pending.discard(page_num)
+        self._show_detection_error(f"Page {page_num + 1}: {error_msg}")
+
+        if not self._detection_pending:
+            self._hide_detection_feedback()
+
+    def _update_detection_feedback(self, page_num: int, stage: str, percent: int) -> None:
+        """Update detection progress UI."""
+        if self._progress_bar:
+            self._progress_bar.setVisible(True)
+            self._progress_bar.setValue(percent)
+
+        if self._status_label:
+            self._status_label.setText(f"🔍 Page {page_num + 1}: {stage}")
+            self._status_label.setStyleSheet("color: #2196F3; font-size: 11px;")
+
+    def _show_detection_complete(self, msg: str) -> None:
+        """Show detection complete message."""
+        if self._status_label:
+            self._status_label.setText(f"✓ {msg}")
+            self._status_label.setStyleSheet("color: #4CAF50; font-size: 11px;")
+
+        # Clear after 3 seconds
+        QTimer.singleShot(3000, self._clear_detection_label)
+
+    def _show_detection_error(self, msg: str) -> None:
+        """Show detection error message."""
+        if self._status_label:
+            self._status_label.setText(f"⚠ {msg}")
+            self._status_label.setStyleSheet("color: #f44336; font-size: 11px;")
+
+        # Keep error visible longer
+        QTimer.singleShot(5000, self._clear_detection_label)
+
+    def _hide_detection_feedback(self) -> None:
+        """Hide detection progress UI."""
+        if self._progress_bar:
+            self._progress_bar.setVisible(False)
+            self._progress_bar.setValue(0)
+
+    def _clear_detection_label(self) -> None:
+        """Clear detection label if no detection pending."""
+        if not self._detection_pending and self._status_label:
+            self._status_label.setText("")
+
+    # ========== Panel Editing Handlers ==========
+
+    def _on_panels_modified(self, panels: List[QRectF]) -> None:
+        """Handle panels modified in edit mode."""
+        cur = self.view.pageNavigator().currentPage()
+        
+        # Update cache with edited panels
+        self._panel_cache.put(cur, panels)
+        
+        # Auto-save corrections
+        if self._current_path and self.document:
+            page_size = self.document.pagePointSize(cur)
+            self._panel_corrections.save(
+                self._current_path,
+                cur,
+                panels,
+                page_size,
+            )
+            self.statusBar().showMessage(f"Corrections sauvegardées pour la page {cur + 1}", 2000)
+
+    def _on_edit_mode_changed(self, enabled: bool) -> None:
+        """Handle edit mode toggle."""
+        if enabled:
+            self.statusBar().showMessage("Mode édition: E=quitter, Suppr=supprimer, Shift+Clic=nouveau", 3000)
+        else:
+            self._update_status()
+
+    def _toggle_edit_mode(self) -> None:
+        """Toggle panel editing mode from menu."""
+        if self._panel_mode:
+            current = self.view.is_edit_mode
+            self.view.set_edit_mode(not current)
+
+    def _revert_panel_corrections(self) -> None:
+        """Revert to detected panels, removing corrections."""
+        if not self._current_path or not self.document:
+            return
+        
+        cur = self.view.pageNavigator().currentPage()
+        
+        # Delete saved corrections
+        self._panel_corrections.delete(self._current_path, cur)
+        
+        # Invalidate cache and re-run detection
+        self._panel_cache.invalidate_page(cur)
+        self._ensure_panels(force=True)
+        self._update_overlay()
+        
+        self.statusBar().showMessage(f"Corrections supprimées pour la page {cur + 1}", 2000)
+
     # ========== Settings Handlers ==========
 
     def _on_toggle_debug(self, checked: bool) -> None:
         self._app_config.debug_panels = checked
         self._detector_config.debug = checked
         self._detector = PanelDetector(self._detector_config)
+        self._async_detection.update_config(self._detector_config)
         self.statusBar().showMessage(f"Debug logs {'ON' if checked else 'OFF'}", 1500)
 
     def _on_toggle_canny(self, checked: bool) -> None:
         self._detector_config.use_canny_fallback = checked
         self._detector = PanelDetector(self._detector_config)
+        self._async_detection.update_config(self._detector_config)
         self.statusBar().showMessage(f"Canny fallback {'ON' if checked else 'OFF'}", 1500)
 
     def _on_toggle_rtl(self, checked: bool) -> None:
         self._detector_config.reading_rtl = checked
         self._detector = PanelDetector(self._detector_config)
+        self._async_detection.update_config(self._detector_config)
         self.statusBar().showMessage(f"Reading {'RTL' if checked else 'LTR'}", 1500)
 
     def _set_det_dpi(self, dpi: float) -> None:
@@ -332,6 +537,7 @@ class ComicsView(QMainWindow):
             self._detector_config = new_config
             self._app_config.detection_dpi = new_dpi
             self._detector = PanelDetector(self._detector_config)
+            self._async_detection.update_config(self._detector_config)
             self._panel_cache.clear()
             self._panel_index = -1
             self._ensure_panels(force=True)
@@ -357,6 +563,7 @@ class ComicsView(QMainWindow):
         self._app_config.panel_framing = app_config.panel_framing
 
         self._detector = PanelDetector(self._detector_config)
+        self._async_detection.update_config(self._detector_config)
         self._panel_cache.clear()
         self._panel_index = -1
         self._ensure_panels(force=True)
@@ -634,6 +841,14 @@ class ComicsView(QMainWindow):
         if not force and cur in self._panel_cache:
             return
 
+        # Check for saved corrections first
+        if self._current_path:
+            corrections = self._panel_corrections.load(self._current_path, cur)
+            if corrections is not None:
+                self._panel_cache.put(cur, corrections)
+                pdebug(f"Loaded corrections for page {cur}: {len(corrections)} panels")
+                return
+
         # Safety check: ensure document is still valid
         if not self.document or self.document.status() != self.document.Status.Ready:
             return
@@ -647,7 +862,15 @@ class ComicsView(QMainWindow):
 
             pdebug(f"Detection: page_points=({pt.width():.1f}x{pt.height():.1f}) dpi={dpi} scale={scale:.3f} img_size=({qimg.width()}x{qimg.height()})")
             
-            rects = self._detector.detect_panels(qimg, pt)
+            # Get PDF path for debug output
+            pdf_path = self.document.property("source") if self.document else None
+            if pdf_path and hasattr(pdf_path, 'toLocalFile'):
+                pdf_path = pdf_path.toLocalFile()
+            elif pdf_path:
+                pdf_path = str(pdf_path)
+            
+            # Call detect_panels with page info for debug organization
+            rects = self._detector.detect_panels(qimg, pt, page_num=cur, pdf_path=pdf_path, dpi=dpi)
             if rects:
                 pdebug(f"First rect in page points: ({rects[0].left():.1f},{rects[0].top():.1f},{rects[0].width():.1f}x{rects[0].height():.1f})")
             
@@ -769,6 +992,8 @@ class ComicsView(QMainWindow):
                 self._update_overlay()
                 # In reading mode: show full page best-fit, then auto-focus first panel after delay
                 self._show_full_then_first_panel(delay_ms=2000, auto_first=True)
+                # Prefetch adjacent pages in background
+                QTimer.singleShot(500, self._prefetch_adjacent_pages)
         except Exception:
             pdebug(f"page_changed error:\n{traceback.format_exc()}")
 
@@ -981,3 +1206,68 @@ class ComicsView(QMainWindow):
             if path.lower().endswith('.pdf'):
                 self.load_pdf(path)
                 return
+
+    # ========== Cleanup ==========
+
+    def closeEvent(self, event) -> None:
+        """Handle window close."""
+        # Cancel pending detections
+        if hasattr(self, '_async_detection') and self._async_detection:
+            self._async_detection.shutdown()
+
+        # Release document
+        if self.document:
+            try:
+                self.view.setDocument(None)
+                self.document.close()
+                self.document.deleteLater()
+            except Exception:
+                pass
+
+        super().closeEvent(event)
+
+    # ========== Prefetching ==========
+
+    def _prefetch_adjacent_pages(self) -> None:
+        """Prefetch panel detection for adjacent pages (async)."""
+        if not self.document or not self._panel_mode:
+            return
+
+        cur = self.view.pageNavigator().currentPage()
+        total = self.document.pageCount()
+
+        # Pages to prefetch: next and previous
+        pages_to_prefetch = []
+        if cur + 1 < total:
+            pages_to_prefetch.append(cur + 1)
+        if cur - 1 >= 0:
+            pages_to_prefetch.append(cur - 1)
+
+        for page_num in pages_to_prefetch:
+            # Skip if already cached
+            if page_num in self._panel_cache:
+                continue
+
+            # Skip if already pending
+            if page_num in self._detection_pending:
+                continue
+
+            try:
+                pt = self.document.pagePointSize(page_num)
+                dpi = self._app_config.detection_dpi
+                scale = dpi / 72.0
+                qsize = QSizeF(pt.width() * scale, pt.height() * scale).toSize()
+                qimg = self.document.render(page_num, qsize)
+
+                pdf_path = self._current_path
+
+                task = DetectionTask(
+                    page_num=page_num,
+                    qimage=qimg,
+                    page_point_size=pt,
+                    pdf_path=pdf_path,
+                    dpi=dpi,
+                )
+                self._async_detection.request_detection(task)
+            except Exception:
+                pdebug(f"prefetch error for page {page_num}:\n{traceback.format_exc()}")

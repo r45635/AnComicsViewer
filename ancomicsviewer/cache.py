@@ -5,10 +5,12 @@ Provides memory-efficient caching with configurable size limits.
 
 from __future__ import annotations
 
+import sys
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Lock
-from typing import Generic, TypeVar, Optional, List
+from typing import Generic, TypeVar, Optional, List, Callable
+import time
 
 from PySide6.QtCore import QRectF
 
@@ -188,3 +190,129 @@ class PanelCache:
     def __contains__(self, page: int) -> bool:
         """Check if page is cached with valid config."""
         return self.get(page) is not None
+
+
+@dataclass
+class MemoryCacheEntry:
+    """Cache entry with memory tracking."""
+    data: any
+    size_bytes: int
+    timestamp: float = field(default_factory=time.time)
+
+
+class MemoryAwareLRUCache(Generic[K, V]):
+    """LRU cache with memory limit awareness.
+    
+    Tracks approximate memory usage and evicts when limit is reached.
+    """
+    
+    def __init__(self, max_items: int = 100, max_memory_mb: float = 100.0):
+        """Initialize cache.
+        
+        Args:
+            max_items: Maximum number of items
+            max_memory_mb: Maximum memory usage in MB
+        """
+        self._max_items = max_items
+        self._max_memory = int(max_memory_mb * 1024 * 1024)
+        self._current_memory = 0
+        self._cache: OrderedDict[K, MemoryCacheEntry] = OrderedDict()
+        self._lock = Lock()
+        self._hit_count = 0
+        self._miss_count = 0
+    
+    def get(self, key: K) -> Optional[V]:
+        """Get item from cache."""
+        with self._lock:
+            if key not in self._cache:
+                self._miss_count += 1
+                return None
+            self._cache.move_to_end(key)
+            self._hit_count += 1
+            return self._cache[key].data
+    
+    def put(self, key: K, value: V, size_bytes: int = 0) -> None:
+        """Add or update item in cache with size tracking.
+        
+        Args:
+            key: Cache key
+            value: Value to store
+            size_bytes: Estimated size in bytes (0 = auto-estimate)
+        """
+        with self._lock:
+            # Estimate size if not provided
+            if size_bytes == 0:
+                size_bytes = self._estimate_size(value)
+            
+            # Remove existing entry if present
+            if key in self._cache:
+                self._current_memory -= self._cache[key].size_bytes
+                del self._cache[key]
+            
+            # Evict until under limits
+            while (len(self._cache) >= self._max_items or 
+                   self._current_memory + size_bytes > self._max_memory) and self._cache:
+                oldest_key, oldest_entry = self._cache.popitem(last=False)
+                self._current_memory -= oldest_entry.size_bytes
+            
+            # Add new entry
+            self._cache[key] = MemoryCacheEntry(data=value, size_bytes=size_bytes)
+            self._current_memory += size_bytes
+    
+    def _estimate_size(self, value: any) -> int:
+        """Estimate memory size of a value."""
+        try:
+            if isinstance(value, list):
+                # For list of QRectF, each rect is ~32 bytes
+                return len(value) * 32 + 64
+            return sys.getsizeof(value)
+        except Exception:
+            return 256  # Default estimate
+    
+    def remove(self, key: K) -> Optional[V]:
+        """Remove item from cache."""
+        with self._lock:
+            if key not in self._cache:
+                return None
+            entry = self._cache.pop(key)
+            self._current_memory -= entry.size_bytes
+            return entry.data
+    
+    def clear(self) -> None:
+        """Clear all items."""
+        with self._lock:
+            self._cache.clear()
+            self._current_memory = 0
+    
+    def __contains__(self, key: K) -> bool:
+        with self._lock:
+            return key in self._cache
+    
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
+    
+    @property
+    def memory_usage_mb(self) -> float:
+        """Current memory usage in MB."""
+        with self._lock:
+            return self._current_memory / (1024 * 1024)
+    
+    @property
+    def hit_rate(self) -> float:
+        """Cache hit rate (0.0 to 1.0)."""
+        total = self._hit_count + self._miss_count
+        return self._hit_count / total if total > 0 else 0.0
+    
+    def get_stats(self) -> dict:
+        """Get cache statistics."""
+        with self._lock:
+            return {
+                "items": len(self._cache),
+                "max_items": self._max_items,
+                "memory_mb": self._current_memory / (1024 * 1024),
+                "max_memory_mb": self._max_memory / (1024 * 1024),
+                "hit_count": self._hit_count,
+                "miss_count": self._miss_count,
+                "hit_rate": self.hit_rate,
+            }

@@ -95,6 +95,7 @@ class PanelDetector:
         self.config = config or DetectorConfig()
         self._last_debug = DebugInfo.empty()
         self._lock = threading.Lock()
+        self._debug_dir: Optional[str] = None  # Set per-page during detection
 
     @classmethod
     def get_executor(cls) -> ThreadPoolExecutor:
@@ -110,12 +111,17 @@ class PanelDetector:
         with self._lock:
             return self._last_debug
 
-    def detect_panels(self, qimage: QImage, page_point_size: QSizeF) -> List[QRectF]:
+    def detect_panels(self, qimage: QImage, page_point_size: QSizeF,
+                     page_num: Optional[int] = None, pdf_path: Optional[str] = None,
+                     dpi: float = 150.0) -> List[QRectF]:
         """Detect comic panels in a rendered page image.
 
         Args:
             qimage: Rendered page as QImage
             page_point_size: Page dimensions in points (72 DPI)
+            page_num: Page number (0-indexed) for debug output organization
+            pdf_path: PDF file path for debug output organization
+            dpi: DPI used for rendering
 
         Returns:
             List of panel rectangles in page point coordinates, sorted by reading order
@@ -127,6 +133,11 @@ class PanelDetector:
         try:
             with self._lock:
                 self._last_debug = DebugInfo.empty()
+                # Setup debug directory if debug mode enabled
+                if self.config.debug and page_num is not None:
+                    self._debug_dir = self._setup_debug_directory(page_num, pdf_path)
+                else:
+                    self._debug_dir = None
 
             self._log_params()
 
@@ -164,6 +175,9 @@ class PanelDetector:
 
             # Try detection routes in order
             rects = self._try_detection_routes(gray, L, w, h, page_point_size, img_bgr)
+            
+            # A) Preserve copy before heavy post-filters (for anti-collapse safeguards)
+            rects_pre_postfilters = list(rects) if rects else []
 
             # Filter title rows (top 35% of page)
             if rects and self.config.filter_title_rows:
@@ -208,26 +222,40 @@ class PanelDetector:
                     rh = max(1, min(rh, h - y))
                     
                     roi_bgr = img_bgr[y:y+rh, x:x+rw]
+                    roi_gray = gray[y:y+rh, x:x+rw]
                     
                     if roi_bgr.size == 0:
                         continue
                     
                     non_bg = _non_bg_ratio(roi_bgr, bg_lab, delta=self.config.freeform_bg_delta)
                     
-                    # Filter if too empty (mostly background)
+                    # B) Filter if too empty (mostly background) - but check texture first
                     if non_bg < self.config.min_non_bg_ratio:
-                        pdebug(f"[Lab] Dropped mostly-bg panel at ({rect.left():.0f},{rect.top():.0f}): "
-                              f"non_bg={non_bg:.3f} < {self.config.min_non_bg_ratio:.3f}")
-                        continue
-                    
-                    # Filter if too thin (likely gutters misdetected as panels)
-                    if median_w > 0 and median_h > 0:
-                        if (rect.height() < self.config.min_dim_ratio * median_h or
-                            rect.width() < self.config.min_dim_ratio * median_w):
-                            pdebug(f"[Lab] Dropped thin panel at ({rect.left():.0f},{rect.top():.0f}): "
-                                  f"{rect.width():.0f}x{rect.height():.0f}pt vs median "
-                                  f"{median_w:.0f}x{median_h:.0f}pt (min_ratio={self.config.min_dim_ratio:.2f})")
+                        # Compute texture metric to avoid dropping light/tinted panels
+                        gray_std = np.std(roi_gray) if roi_gray.size > 0 else 0.0
+                        if gray_std >= 12.0:  # Has texture -> keep despite low Lab contrast
+                            pdebug(f"[Lab] KEPT low-contrast panel (texture={gray_std:.1f}): "
+                                  f"({rect.left():.0f},{rect.top():.0f}) non_bg={non_bg:.3f}")
+                        else:
+                            pdebug(f"[Lab] Dropped mostly-bg panel at ({rect.left():.0f},{rect.top():.0f}): "
+                                  f"non_bg={non_bg:.3f} < {self.config.min_non_bg_ratio:.3f}, texture={gray_std:.1f}")
                             continue
+                    
+                    # C) Filter if too thin - but only if also low content
+                    if median_w > 0 and median_h > 0:
+                        is_thin = (rect.height() < self.config.min_dim_ratio * median_h or
+                                  rect.width() < self.config.min_dim_ratio * median_w)
+                        if is_thin:
+                            # Only drop if also low-content (modern can have narrow but valid panels)
+                            content_threshold = max(self.config.min_non_bg_ratio * 1.8, 0.18)
+                            if non_bg < content_threshold:
+                                pdebug(f"[Lab] Dropped thin+low-content panel at ({rect.left():.0f},{rect.top():.0f}): "
+                                      f"{rect.width():.0f}x{rect.height():.0f}pt vs median "
+                                      f"{median_w:.0f}x{median_h:.0f}pt, non_bg={non_bg:.3f}")
+                                continue
+                            else:
+                                pdebug(f"[Lab] KEPT thin but high-content panel: "
+                                      f"({rect.left():.0f},{rect.top():.0f}) non_bg={non_bg:.3f}")
                     
                     filtered_rects.append(rect)
                 
@@ -248,6 +276,10 @@ class PanelDetector:
                 # Save debug image after nested suppression if debug mode
                 if self.config.debug:
                     self._save_debug_panels(img_bgr, rects, w, h, page_point_size, "after")
+            
+            # D) Save state before splash heuristics (for anti-collapse)
+            rects_pre_splash = list(rects) if rects else []
+            panel_mode_used = getattr(self, '_decision_context', {}).get('panel_mode_used', 'unknown')
 
             # Splash-page fallback: if we end with a single small panel but the page is full of content,
             # promote it to a full-page panel. Helps for full-bleed pages mis-detected as a small box.
@@ -257,19 +289,32 @@ class PanelDetector:
                 area_ratio = (panel_area / page_area) if page_area > 0 else 0.0
                 non_bg_page = _non_bg_ratio(img_bgr, bg_lab, delta=self.config.freeform_bg_delta) if img_bgr is not None else 0.0
 
-                if area_ratio < 0.60 and non_bg_page > 0.35:
+                # D1) Anti-collapse safeguard for modern mode
+                should_promote = area_ratio < 0.60 and non_bg_page > 0.35
+                if should_promote and panel_mode_used == "modern":
+                    if len(rects_pre_splash) >= 2 or len(rects_pre_postfilters) >= 2:
+                        pdebug(f"[ANTI_COLLAPSE] Skip promotion: pre_splash={len(rects_pre_splash)}, "
+                              f"pre_postfilters={len(rects_pre_postfilters)}")
+                        should_promote = False
+                
+                if should_promote:
                     if self.config.debug:
                         pdebug(f"[splash] Promote to full-page panel: area_ratio={area_ratio:.2f}, non_bg={non_bg_page:.2f}")
                     rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
 
             # If nothing survived but the page is full of content, treat it as a single splash page.
             if (not rects or len(rects) == 0) and img_bgr is not None:
-                page_area = page_point_size.width() * page_point_size.height()
-                non_bg_page = _non_bg_ratio(img_bgr, bg_lab, delta=self.config.freeform_bg_delta)
-                if page_area > 0 and non_bg_page > 0.35:
-                    if self.config.debug:
-                        pdebug(f"[splash] Recovered empty detection as full-page splash: non_bg={non_bg_page:.2f}")
-                    rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
+                # D3) Anti-collapse: restore if we had multiple panels before
+                if panel_mode_used == "modern" and len(rects_pre_postfilters) >= 2:
+                    pdebug(f"[ANTI_COLLAPSE] Restore {len(rects_pre_postfilters)} panels instead of empty->full-page")
+                    rects = rects_pre_postfilters
+                else:
+                    page_area = page_point_size.width() * page_point_size.height()
+                    non_bg_page = _non_bg_ratio(img_bgr, bg_lab, delta=self.config.freeform_bg_delta)
+                    if page_area > 0 and non_bg_page > 0.35:
+                        if self.config.debug:
+                            pdebug(f"[splash] Recovered empty detection as full-page splash: non_bg={non_bg_page:.2f}")
+                        rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
 
             # Fragmented cover/art page heuristic: if we have several very small panels on a page that is
             # mostly content (high non-bg), collapse to a full-page panel.
@@ -285,6 +330,24 @@ class PanelDetector:
                         if self.config.debug:
                             pdebug(f"[splash] Collapsing fragmented page to full: max_ratio={max_ratio:.2f}, coverage={coverage:.2f}, non_bg={non_bg_page:.2f}")
                         rects = [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
+            
+            # D2) Final anti-collapse safeguard (modern-only)
+            if panel_mode_used == "modern" and len(rects) == 1:
+                if len(rects_pre_splash) >= 2 or len(rects_pre_postfilters) >= 2:
+                    page_area = page_point_size.width() * page_point_size.height()
+                    single_area = rects[0].width() * rects[0].height()
+                    single_coverage = single_area / page_area if page_area > 0 else 0.0
+                    non_bg_page = _non_bg_ratio(img_bgr, bg_lab, delta=self.config.freeform_bg_delta) if img_bgr is not None else 0.0
+                    
+                    # Restore if single panel covers most of page OR is small with some content
+                    should_restore = (single_coverage >= 0.80) or (single_coverage <= 0.70 and non_bg_page > 0.25)
+                    
+                    if should_restore:
+                        # Choose best restoration source
+                        restore_from = rects_pre_splash if len(rects_pre_splash) >= 2 else rects_pre_postfilters
+                        pdebug(f"[ANTI_COLLAPSE] Restore {len(restore_from)} panels (coverage={single_coverage:.2f}, "
+                              f"non_bg={non_bg_page:.2f}) from {'pre_splash' if restore_from is rects_pre_splash else 'pre_postfilters'}")
+                        rects = restore_from
 
             # Sort by reading order
             rects = self._sort_by_reading_order(rects)
@@ -293,6 +356,10 @@ class PanelDetector:
             # Export decision context to JSON if debug mode
             if self.config.debug and hasattr(self, '_decision_context'):
                 self._export_decision_json(self._decision_context, rects, w, h, page_point_size)
+            
+            # Export comprehensive debug info at the end
+            if self._debug_dir:
+                self._export_debug_info(page_num, pdf_path, page_point_size, dpi, rects)
 
             return rects
 
@@ -315,6 +382,108 @@ class PanelDetector:
             f"panel_mode={c.panel_mode}"
         )
     
+    def _setup_debug_directory(self, page_num: int, pdf_path: Optional[str]) -> str:
+        """Create and return a debug directory path for this page.
+        
+        Args:
+            page_num: Page number (0-indexed)
+            pdf_path: Path to PDF file (optional)
+            
+        Returns:
+            Path to debug directory for this page
+        """
+        import os
+        from datetime import datetime
+        from pathlib import Path
+        
+        # Create timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Create page-specific subdirectory
+        page_dir_name = f"page_{page_num+1:03d}_{timestamp}"
+        debug_dir = os.path.join("debug_output", page_dir_name)
+        os.makedirs(debug_dir, exist_ok=True)
+        
+        pdebug(f"[Debug] Created debug directory: {debug_dir}")
+        return debug_dir
+    
+    def _export_debug_info(self, page_num: Optional[int], pdf_path: Optional[str],
+                          page_point_size: QSizeF, dpi: float, rects: List[QRectF]) -> None:
+        """Export comprehensive debug information for this page.
+        
+        Args:
+            page_num: Page number (0-indexed)
+            pdf_path: Path to PDF file
+            page_point_size: Page dimensions in points
+            dpi: DPI used for rendering
+            rects: Final detected panels
+        """
+        import os
+        import json
+        from datetime import datetime
+        from pathlib import Path
+        
+        if not self._debug_dir:
+            return
+        
+        # Create info file with metadata
+        info_data = {
+            "pdf_name": Path(pdf_path).name if pdf_path else "unknown",
+            "pdf_path": pdf_path or "unknown",
+            "page_number": (page_num + 1) if page_num is not None else "unknown",
+            "timestamp": datetime.now().isoformat(),
+            "dpi": dpi,
+            "page_size_points": {
+                "width": page_point_size.width(),
+                "height": page_point_size.height()
+            }
+        }
+        
+        info_path = os.path.join(self._debug_dir, "info.txt")
+        try:
+            with open(info_path, "w", encoding="utf-8") as f:
+                for key, value in info_data.items():
+                    if isinstance(value, dict):
+                        f.write(f"{key}:\\n")
+                        for k, v in value.items():
+                            f.write(f"  {k}: {v}\\n")
+                    else:
+                        f.write(f"{key}: {value}\\n")
+            pdebug(f"[Debug] Exported info to {info_path}")
+        except Exception as e:
+            pdebug(f"[Debug] Failed to export info: {e}")
+        
+        # Create panels.txt with panel details
+        panels_path = os.path.join(self._debug_dir, "panels.txt")
+        try:
+            with open(panels_path, "w", encoding="utf-8") as f:
+                # Compute image size from page size and DPI
+                scale = dpi / 72.0
+                render_w = int(page_point_size.width() * scale)
+                render_h = int(page_point_size.height() * scale)
+                
+                f.write(f"page_render_size_px: {render_w}x{render_h}\\n")
+                f.write(f"page_points: {page_point_size.width():.2f}x{page_point_size.height():.2f}\\n")
+                f.write(f"dpi: {dpi}\\n")
+                f.write(f"full_page_rect_px: x=0, y=0, w={render_w}, h={render_h}\\n")
+                f.write(f"panel_count: {len(rects)}\\n")
+                
+                for i, rect in enumerate(rects):
+                    # Convert to pixels for visualization
+                    x_px = int(rect.left() * scale)
+                    y_px = int(rect.top() * scale)
+                    w_px = int(rect.width() * scale)
+                    h_px = int(rect.height() * scale)
+                    
+                    f.write(f"panel_id: {i+1} | ")
+                    f.write(f"rect_px: x={x_px}, y={y_px}, w={w_px}, h={h_px} | ")
+                    f.write(f"rect_points: x={rect.left():.2f}, y={rect.top():.2f}, ")
+                    f.write(f"w={rect.width():.2f}, h={rect.height():.2f}\\n")
+            
+            pdebug(f"[Debug] Exported panels to {panels_path}")
+        except Exception as e:
+            pdebug(f"[Debug] Failed to export panels: {e}")
+    
     def _export_decision_json(self, decision_context: dict, rects: List[QRectF], 
                               w: int, h: int, page_point_size: QSizeF) -> None:
         """Export decision context to JSON file for debugging.
@@ -328,14 +497,16 @@ class PanelDetector:
         import json
         import os
         
-        # Prepare output directory
-        debug_dir = "debug_output"
+        # Use configured debug directory or fallback
+        debug_dir = self._debug_dir if self._debug_dir else "debug_output"
         os.makedirs(debug_dir, exist_ok=True)
         
-        # Compute final metrics
-        final_coverage = self._rects_union_coverage(rects, w, h)
-        final_small_ratio = self._small_rect_ratio(rects, w, h)
-        final_margin_ratio = self._margin_rect_ratio(rects, w, h)
+        # Compute final metrics using page points
+        page_w = float(page_point_size.width())
+        page_h = float(page_point_size.height())
+        final_coverage = self._rects_union_coverage(rects, page_w, page_h)
+        final_small_ratio = self._small_rect_ratio(rects, page_w, page_h)
+        final_margin_ratio = self._margin_rect_ratio(rects, page_w, page_h)
         
         # Build decision data
         decision_data = {
@@ -609,8 +780,8 @@ class PanelDetector:
                 else:
                     rects = self._merge_overlapping_rects(rects + gutter_rects)
         
-        # Apply header/footer strip removal (modern only)
-        rects = self._remove_header_footer_strips(rects, h)
+        # Apply header/footer strip removal (modern only) - use page points
+        rects = self._remove_header_footer_strips(rects, float(page_point_size.height()))
         
         # Store pre-freeform candidate
         adaptive_candidate = rects
@@ -631,9 +802,11 @@ class PanelDetector:
                     needs_freeform = True
                     reason = f"single large panel covering {max_ratio*100:.1f}% of page"
                 
-                # Also check for many small rects or weak gutters
-                small_ratio = self._small_rect_ratio(rects, w, h)
-                coverage = self._rects_union_coverage(rects, w, h)
+                # Also check for many small rects or weak gutters - use page points
+                page_w = float(page_point_size.width())
+                page_h = float(page_point_size.height())
+                small_ratio = self._small_rect_ratio(rects, page_w, page_h)
+                coverage = self._rects_union_coverage(rects, page_w, page_h)
                 if small_ratio > 0.40 or coverage < 0.45:
                     needs_freeform = True
                     reason = f"weak adaptive: small_ratio={small_ratio:.2f}, coverage={coverage:.2f}"
@@ -646,18 +819,24 @@ class PanelDetector:
                 
                 freeform_rects = self._freeform_detection(gray_bgr, w, h, page_point_size)
                 
-                # Use modern selection with mega-panel prevention
-                rects = self._select_best_route_modern(adaptive_candidate, freeform_rects, w, h, page_area)
+                # Use modern selection with mega-panel prevention - pass page points
+                page_w = float(page_point_size.width())
+                page_h = float(page_point_size.height())
+                rects = self._select_best_route_modern(adaptive_candidate, freeform_rects, page_w, page_h, page_area)
             else:
                 self._decision_context["route_chosen"] = "adaptive/gutter"
                 self._decision_context["freeform_triggered"] = False
         
         return rects
 
-    def _remove_header_footer_strips(self, rects: List[QRectF], h: int) -> List[QRectF]:
+    def _remove_header_footer_strips(self, rects: List[QRectF], page_h: float) -> List[QRectF]:
         """Remove header/footer strips (page numbers, title fragments).
         
-        Removes rects with height < 0.10*h in top/bottom margins.
+        Args:
+            rects: Rectangles in page points
+            page_h: Page height in points
+        
+        Removes rects with height < 0.10*page_h in top/bottom margins.
         This is conservative and won't affect Tintin panels.
         """
         if not rects:
@@ -666,9 +845,9 @@ class PanelDetector:
         filtered = []
         for rect in rects:
             # Check if it's a thin strip (height < 10% of page)
-            if rect.height() < 0.10 * h:
+            if rect.height() < 0.10 * page_h:
                 # In top or bottom margin?
-                if rect.top() < 0.06 * h or (rect.top() + rect.height()) > 0.94 * h:
+                if rect.top() < 0.06 * page_h or (rect.top() + rect.height()) > 0.94 * page_h:
                     pdebug(f"[Strip] Removed header/footer at y={rect.top():.1f}, h={rect.height():.1f}")
                     continue
             filtered.append(rect)
@@ -678,24 +857,34 @@ class PanelDetector:
         
         return filtered
     
-    def _rects_union_coverage(self, rects: List[QRectF], w: int, h: int) -> float:
+    def _rects_union_coverage(self, rects: List[QRectF], page_w: float, page_h: float) -> float:
         """Calculate coverage ratio of union(rects) / page_area.
         
-        Returns fraction of page covered by at least one rect.
+        Args:
+            rects: Rectangles in page points
+            page_w, page_h: Page dimensions in points
+            
+        Returns:
+            Fraction of page covered by at least one rect.
+            
+        IMPORTANT: rects are in page points; metrics must be computed in point space.
         """
         if not rects:
             return 0.0
         
-        page_area = w * h
+        # Create binary mask in point space
+        mask_h = int(page_h)
+        mask_w = int(page_w)
+        page_area = page_w * page_h
         
-        # Create a binary mask
-        mask = np.zeros((h, w), dtype=np.uint8)
+        mask = np.zeros((mask_h, mask_w), dtype=np.uint8)
         
         for rect in rects:
-            x = int(max(0, min(rect.left(), w - 1)))
-            y = int(max(0, min(rect.top(), h - 1)))
-            x2 = int(max(0, min(rect.left() + rect.width(), w)))
-            y2 = int(max(0, min(rect.top() + rect.height(), h)))
+            # Clamp rect coords to page bounds
+            x = int(max(0, min(rect.left(), page_w - 1)))
+            y = int(max(0, min(rect.top(), page_h - 1)))
+            x2 = int(max(0, min(rect.left() + rect.width(), page_w)))
+            y2 = int(max(0, min(rect.top() + rect.height(), page_h)))
             
             if x2 > x and y2 > y:
                 mask[y:y2, x:x2] = 1
@@ -703,23 +892,31 @@ class PanelDetector:
         covered_pixels = np.sum(mask)
         return covered_pixels / page_area if page_area > 0 else 0.0
     
-    def _small_rect_ratio(self, rects: List[QRectF], w: int, h: int) -> float:
+    def _small_rect_ratio(self, rects: List[QRectF], page_w: float, page_h: float) -> float:
         """Fraction of rects whose area < (min_area_ratio * page_area) * K.
         
+        Args:
+            rects: Rectangles in page points
+            page_w, page_h: Page dimensions in points
+            
         K ~ 0.5 to identify rects smaller than half the minimum size.
         """
         if not rects:
             return 0.0
         
-        page_area = w * h
+        page_area = page_w * page_h
         min_area = self.config.min_area_pct * page_area * 0.5  # K = 0.5
         
         small_count = sum(1 for r in rects if (r.width() * r.height()) < min_area)
         return small_count / len(rects)
     
-    def _margin_rect_ratio(self, rects: List[QRectF], w: int, h: int) -> float:
+    def _margin_rect_ratio(self, rects: List[QRectF], page_w: float, page_h: float) -> float:
         """Fraction of rects in top/bottom margins with small height.
         
+        Args:
+            rects: Rectangles in page points
+            page_w, page_h: Page dimensions in points
+            
         Identifies page number fragments and title strips.
         """
         if not rects:
@@ -728,16 +925,21 @@ class PanelDetector:
         margin_count = 0
         for rect in rects:
             # Check if in margin
-            in_top_margin = rect.top() < 0.06 * h
-            in_bottom_margin = (rect.top() + rect.height()) > 0.94 * h
+            in_top_margin = rect.top() < 0.06 * page_h
+            in_bottom_margin = (rect.top() + rect.height()) > 0.94 * page_h
             
-            if (in_top_margin or in_bottom_margin) and rect.height() < 0.12 * h:
+            if (in_top_margin or in_bottom_margin) and rect.height() < 0.12 * page_h:
                 margin_count += 1
         
         return margin_count / len(rects)
     
-    def _compute_rect_score(self, rects: List[QRectF], w: int, h: int, label: str = "") -> float:
+    def _compute_rect_score(self, rects: List[QRectF], page_w: float, page_h: float, label: str = "") -> float:
         """Compute quality score for a set of rects.
+        
+        Args:
+            rects: Rectangles in page points
+            page_w, page_h: Page dimensions in points
+            label: Label for debug output
         
         score = 2.5*coverage - 0.25*count - 1.5*small_ratio - 1.0*margin_ratio
         
@@ -746,10 +948,10 @@ class PanelDetector:
         if not rects:
             return -999.0
         
-        coverage = self._rects_union_coverage(rects, w, h)
+        coverage = self._rects_union_coverage(rects, page_w, page_h)
         count = len(rects)
-        small_ratio = self._small_rect_ratio(rects, w, h)
-        margin_ratio = self._margin_rect_ratio(rects, w, h)
+        small_ratio = self._small_rect_ratio(rects, page_w, page_h)
+        margin_ratio = self._margin_rect_ratio(rects, page_w, page_h)
         
         score = 2.5 * coverage - 0.25 * count - 1.5 * small_ratio - 1.0 * margin_ratio
         
@@ -803,36 +1005,57 @@ class PanelDetector:
             return adaptive_rects
     
     def _select_best_route_modern(self, adaptive_rects: List[QRectF], freeform_rects: List[QRectF], 
-                                  w: int, h: int, page_area: float) -> List[QRectF]:
+                                  page_w: float, page_h: float, page_area: float) -> List[QRectF]:
         """Select best route for modern mode with mega-panel prevention.
+        
+        Args:
+            adaptive_rects: Rectangles from adaptive route (in page points)
+            freeform_rects: Rectangles from freeform route (in page points)
+            page_w, page_h: Page dimensions in points
+            page_area: Page area in points^2
         
         Prefer freeform ONLY if:
         - No mega-panel collapse (prevents 1-2 huge panels)
         - Candidate is valid (coverage >= 0.55, count 2-12, small_ratio < 0.60)
         - Improves coverage or reduces small_ratio significantly
         """
+        # Compute metrics for both routes (even if empty - for decision.json)
+        adaptive_coverage = self._rects_union_coverage(adaptive_rects, page_w, page_h) if adaptive_rects else 0.0
+        adaptive_small_ratio = self._small_rect_ratio(adaptive_rects, page_w, page_h) if adaptive_rects else 0.0
+        adaptive_count = len(adaptive_rects)
+        adaptive_max_ratio = 0.0
+        if adaptive_rects:
+            adaptive_max_ratio = max((r.width() * r.height()) / page_area for r in adaptive_rects) if page_area > 0 else 0.0
+        
+        freeform_coverage = self._rects_union_coverage(freeform_rects, page_w, page_h) if freeform_rects else 0.0
+        freeform_small_ratio = self._small_rect_ratio(freeform_rects, page_w, page_h) if freeform_rects else 0.0
+        freeform_count = len(freeform_rects)
+        freeform_max_ratio = 0.0
+        if freeform_rects:
+            freeform_max_ratio = max((r.width() * r.height()) / page_area for r in freeform_rects) if page_area > 0 else 0.0
+        
+        # Always store metrics in decision context
+        self._decision_context["freeform_triggered"] = True
+        self._decision_context["adaptive_coverage"] = adaptive_coverage
+        self._decision_context["adaptive_count"] = adaptive_count
+        self._decision_context["adaptive_max_ratio"] = adaptive_max_ratio
+        self._decision_context["freeform_coverage"] = freeform_coverage
+        self._decision_context["freeform_count"] = freeform_count
+        self._decision_context["freeform_max_ratio"] = freeform_max_ratio
+        
         if not freeform_rects:
             pdebug("[Modern Selection] Freeform empty, keeping adaptive")
             self._decision_context["route_chosen"] = "adaptive"
-            self._decision_context["freeform_triggered"] = True
             self._decision_context["freeform_selected"] = False
+            self._decision_context["freeform_mega_panel"] = False
             return adaptive_rects
         
         if not adaptive_rects:
             pdebug("[Modern Selection] Adaptive empty, using freeform")
             self._decision_context["route_chosen"] = "freeform"
-            self._decision_context["freeform_triggered"] = True
             self._decision_context["freeform_selected"] = True
+            self._decision_context["freeform_mega_panel"] = False
             return freeform_rects
-        
-        # Compute metrics
-        adaptive_coverage = self._rects_union_coverage(adaptive_rects, w, h)
-        adaptive_small_ratio = self._small_rect_ratio(adaptive_rects, w, h)
-        adaptive_count = len(adaptive_rects)
-        
-        freeform_coverage = self._rects_union_coverage(freeform_rects, w, h)
-        freeform_small_ratio = self._small_rect_ratio(freeform_rects, w, h)
-        freeform_count = len(freeform_rects)
         
         # Check for mega-panel collapse
         has_mega_panel = False
@@ -863,11 +1086,6 @@ class PanelDetector:
             pdebug(f"[Modern Selection] Freeform: coverage={freeform_coverage:.3f}, count={freeform_count}, small_ratio={freeform_small_ratio:.3f}")
             pdebug(f"[Modern Selection] Mega-panel={has_mega_panel}, valid={freeform_valid}, use_freeform={use_freeform}")
         
-        self._decision_context["freeform_triggered"] = True
-        self._decision_context["adaptive_coverage"] = adaptive_coverage
-        self._decision_context["adaptive_count"] = adaptive_count
-        self._decision_context["freeform_coverage"] = freeform_coverage
-        self._decision_context["freeform_count"] = freeform_count
         self._decision_context["freeform_mega_panel"] = has_mega_panel
         
         if use_freeform:
@@ -2526,7 +2744,8 @@ class PanelDetector:
             filename: Output filename
         """
         import os
-        debug_dir = "debug_output"
+        # Use configured debug directory or fallback
+        debug_dir = self._debug_dir if self._debug_dir else "debug_output"
         os.makedirs(debug_dir, exist_ok=True)
         out_path = os.path.join(debug_dir, filename)
         cv2.imwrite(out_path, img)
@@ -2545,7 +2764,8 @@ class PanelDetector:
             filename: Output filename
         """
         import os
-        debug_dir = "debug_output"
+        # Use configured debug directory or fallback
+        debug_dir = self._debug_dir if self._debug_dir else "debug_output"
         os.makedirs(debug_dir, exist_ok=True)
         
         # Downscale for visualization
@@ -2589,7 +2809,8 @@ class PanelDetector:
             stage: "before" or "after" (nested suppression)
         """
         import os
-        debug_dir = "debug_output"
+        # Use configured debug directory or fallback
+        debug_dir = self._debug_dir if self._debug_dir else "debug_output"
         os.makedirs(debug_dir, exist_ok=True)
         
         # Downscale for visualization

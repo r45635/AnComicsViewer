@@ -1,6 +1,6 @@
 """Image conversion utilities for AnComicsViewer.
 
-Optimized QImage <-> NumPy conversions with proper memory handling.
+Optimized QImage <-> NumPy conversions with minimal memory copies.
 """
 
 from __future__ import annotations
@@ -38,13 +38,16 @@ def pdebug(*parts: object) -> None:
         pass
 
 
-def qimage_to_numpy_rgba(img: QImage) -> Optional[NDArray]:
+def qimage_to_numpy_rgba(img: QImage, copy: bool = True) -> Optional[NDArray]:
     """Convert QImage to NumPy array (HxWx4 RGBA uint8).
 
-    Handles PySide6 memoryview correctly and avoids data copies where possible.
+    Optimized to minimize memory copies:
+    - If copy=False, returns a view when possible (faster but image must stay alive)
+    - If copy=True (default), returns a contiguous copy safe for OpenCV
 
     Args:
         img: QImage to convert
+        copy: If True, return a copy; if False, try to return a view
 
     Returns:
         NumPy array of shape (height, width, 4) or None on failure
@@ -66,19 +69,41 @@ def qimage_to_numpy_rgba(img: QImage) -> Optional[NDArray]:
     # Get raw bytes from memoryview
     mv = img.constBits()
     try:
-        buf = bytes(mv)
-        arr = np.frombuffer(buf, dtype=np.uint8)
+        # Create array view directly from memoryview (no copy yet)
+        arr = np.frombuffer(mv, dtype=np.uint8)
 
         # Handle stride padding (bytesPerLine may be > width * 4)
-        arr = arr.reshape((h, bpl))
-        arr = arr[:, :w * 4]
-        arr = arr.reshape((h, w, 4))
+        if bpl == w * 4:
+            # No padding - can reshape directly
+            arr = arr.reshape((h, w, 4))
+        else:
+            # Has padding - need to handle stride
+            arr = arr.reshape((h, bpl))
+            arr = arr[:, :w * 4].reshape((h, w, 4))
 
-        # Return a contiguous copy for OpenCV compatibility
-        return np.ascontiguousarray(arr)
+        # Return copy only if requested (for OpenCV thread safety)
+        if copy:
+            return np.ascontiguousarray(arr)
+        else:
+            return arr
+            
     except Exception as e:
         pdebug(f"QImage conversion failed: {e}")
         return None
+
+
+def qimage_to_numpy_fast(img: QImage) -> Optional[NDArray]:
+    """Fast conversion returning a view (caller must keep QImage alive).
+    
+    Use this when you need maximum performance and control the QImage lifetime.
+    
+    Args:
+        img: QImage to convert
+        
+    Returns:
+        NumPy array view or None on failure
+    """
+    return qimage_to_numpy_rgba(img, copy=False)
 
 
 def rgba_to_grayscale(arr: NDArray) -> NDArray:
