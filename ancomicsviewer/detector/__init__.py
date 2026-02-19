@@ -7,6 +7,11 @@ This package provides a modular architecture for panel detection:
 - adaptive.py: Adaptive threshold detection route
 - gutter.py: Gutter-based detection for white/light separations
 - freeform.py: Watershed segmentation for complex layouts
+- line_detection.py: LSD line segment detection + gradient borders
+- contour_hierarchy.py: Contour hierarchy analysis (RETR_TREE)
+- multiscale.py: Multi-scale consensus merging
+- clustering.py: K-means color clustering for background separation
+- templates.py: Template-based layout matching
 - filters.py: Post-processing filters (title rows, empty panels, etc.)
 - classifier.py: Page style classification (classic vs modern)
 - utils.py: Shared utilities and data structures

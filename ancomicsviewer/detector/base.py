@@ -3,7 +3,12 @@
 This is the main entry point for panel detection, coordinating:
 - Adaptive threshold detection
 - Gutter-based detection
+- Line segment detection (LSD)
+- Contour hierarchy analysis
 - Freeform/watershed detection
+- Multi-scale consensus merging
+- K-means background clustering
+- Template layout matching
 - Post-processing filters
 """
 
@@ -33,6 +38,11 @@ from .classifier import classify_page_style
 from .adaptive import adaptive_threshold_route, rects_from_mask
 from .gutter import gutter_based_detection
 from .freeform import freeform_detection
+from .line_detection import line_based_detection
+from .contour_hierarchy import hierarchy_based_detection
+from .multiscale import multiscale_detect, score_detection_result, select_best_result
+from .clustering import make_kmeans_background_mask, get_dominant_bg_lab
+from .templates import refine_with_template
 from .filters import (
     filter_title_rows,
     filter_by_area,
@@ -151,9 +161,13 @@ class PanelDetector:
             L = rgba_to_lab_l(arr, apply_clahe=True)
             img_bgr = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
 
-            # Estimate background
-            bg_lab = estimate_bg_lab(img_bgr)
-            pdebug(f"bg_lab=({bg_lab[0]:.1f}, {bg_lab[1]:.1f}, {bg_lab[2]:.1f})")
+            # Estimate background (use k-means if enabled for better accuracy)
+            if self.config.use_kmeans_bg:
+                bg_lab = get_dominant_bg_lab(img_bgr, k=self.config.kmeans_k)
+                pdebug(f"bg_lab(kmeans)=({bg_lab[0]:.1f}, {bg_lab[1]:.1f}, {bg_lab[2]:.1f})")
+            else:
+                bg_lab = estimate_bg_lab(img_bgr)
+                pdebug(f"bg_lab=({bg_lab[0]:.1f}, {bg_lab[1]:.1f}, {bg_lab[2]:.1f})")
 
             # Run detection pipeline
             rects = self._detection_pipeline(
@@ -188,189 +202,189 @@ class PanelDetector:
         page_point_size: QSizeF,
     ) -> List[QRectF]:
         """Main detection pipeline using configured mode.
-        
+
+        Enhanced pipeline with multi-route detection:
+        1. Adaptive threshold (original)
+        2. Line segment detection (LSD + gradient borders)
+        3. Gutter-based detection
+        4. Contour hierarchy analysis
+        5. Freeform/watershed
+        6. Multi-scale consensus (wraps the above)
+        7. Template matching refinement
+
         Returns:
             List of detected panel rectangles
         """
         panel_mode = self.config.panel_mode
 
-        # Primary: adaptive threshold
-        mask = adaptive_threshold_route(gray, self.config)
-        rects = rects_from_mask(mask, w, h, page_point_size, self.config)
-        pdebug(f"Adaptive: {len(rects)} rects")
+        # === Phase 1: Multi-route detection ===
+
+        # If multi-scale is enabled, wrap the core detection
+        if self.config.use_multiscale:
+            rects = multiscale_detect(
+                detect_fn=self._core_detection,
+                gray=gray, L=L, img_bgr=img_bgr,
+                w=w, h=h,
+                page_point_size=page_point_size,
+                config=self.config,
+                scales=self.config.multiscale_factors,
+                min_agreement=self.config.multiscale_min_agreement,
+            )
+            pdebug(f"[Pipeline] Multi-scale result: {len(rects)} panels")
+        else:
+            rects = self._core_detection(gray, L, img_bgr, w, h, page_point_size, self.config)
+
+        # === Phase 2: Template refinement ===
+        if self.config.use_template_matching and rects is not None:
+            rects = refine_with_template(
+                rects, gray, page_point_size,
+                config=self.config,
+                min_template_score=self.config.template_min_score,
+                detection_score_threshold=self.config.template_detection_threshold,
+            )
+
+        return rects
+
+    def _core_detection(
+        self,
+        gray: NDArray,
+        L: NDArray,
+        img_bgr: NDArray,
+        w: int,
+        h: int,
+        page_point_size: QSizeF,
+        config: "DetectorConfig",
+    ) -> List[QRectF]:
+        """Core detection at a single scale - runs all routes and selects best.
+
+        This method is called by multiscale_detect at each scale factor.
+        """
+        panel_mode = config.panel_mode
+
+        # Route 1: Adaptive threshold (fast, primary)
+        mask = adaptive_threshold_route(gray, config)
+        adaptive_rects = rects_from_mask(mask, w, h, page_point_size, config)
+        pdebug(f"Adaptive: {len(adaptive_rects)} rects")
 
         # Auto-classify if needed
         if panel_mode == "auto":
-            panel_mode = classify_page_style(img_bgr, rects, w, h, self.config.debug)
+            panel_mode = classify_page_style(img_bgr, adaptive_rects, w, h, config.debug)
             pdebug(f"[Auto] Classified: {panel_mode}")
 
         # Store decision context
         self._decision_context = {
-            "panel_mode_input": self.config.panel_mode,
+            "panel_mode_input": config.panel_mode,
             "panel_mode_used": panel_mode,
-            "adaptive_initial_count": len(rects),
+            "adaptive_initial_count": len(adaptive_rects),
         }
 
-        if panel_mode == "classic_franco_belge":
-            return self._classic_policy(rects, gray, L, img_bgr, w, h, page_point_size)
-        else:
-            return self._modern_policy(rects, gray, L, img_bgr, w, h, page_point_size)
+        # Run all enabled detection routes in parallel-ready fashion
+        route_results: Dict[str, List[QRectF]] = {
+            "adaptive": adaptive_rects,
+        }
 
-    def _classic_policy(
+        # Route 2: Line segment detection (LSD)
+        if config.use_line_detection:
+            try:
+                lsd_rects = line_based_detection(gray, w, h, page_point_size, config, img_bgr)
+                if lsd_rects:
+                    route_results["lsd"] = lsd_rects
+                    pdebug(f"LSD: {len(lsd_rects)} rects")
+            except Exception as e:
+                pdebug(f"LSD failed: {e}")
+
+        # Route 3: Contour hierarchy
+        if config.use_hierarchy:
+            try:
+                hierarchy_rects = hierarchy_based_detection(gray, w, h, page_point_size, config)
+                if hierarchy_rects:
+                    route_results["hierarchy"] = hierarchy_rects
+                    pdebug(f"Hierarchy: {len(hierarchy_rects)} rects")
+            except Exception as e:
+                pdebug(f"Hierarchy failed: {e}")
+
+        # Route 4: Gutter-based (for grid layouts)
+        gutter_rects = gutter_based_detection(gray, L, w, h, page_point_size, config, img_bgr)
+        if gutter_rects:
+            route_results["gutter"] = gutter_rects
+            pdebug(f"Gutter: {len(gutter_rects)} rects")
+
+        # === Route selection based on page style ===
+        if panel_mode == "classic_franco_belge":
+            rects = self._classic_route_selection(route_results, page_point_size)
+        else:
+            rects = self._modern_route_selection(
+                route_results, gray, L, img_bgr, w, h, page_point_size, config
+            )
+
+        return rects
+
+    def _classic_route_selection(
         self,
-        rects: List[QRectF],
-        gray: NDArray,
-        L: NDArray,
-        img_bgr: NDArray,
-        w: int,
-        h: int,
+        route_results: Dict[str, List[QRectF]],
         page_point_size: QSizeF,
     ) -> List[QRectF]:
-        """Classic Franco-Belge detection policy (Tintin-safe).
-        
-        Uses adaptive + gutter-based only.
-        """
+        """Select best route for classic Franco-Belge style."""
         pdebug("[Policy] CLASSIC_FRANCO_BELGE")
 
-        if len(rects) < 3:
-            gutter_rects = gutter_based_detection(gray, L, w, h, page_point_size, self.config, img_bgr)
-            pdebug(f"Gutter: {len(gutter_rects)} rects")
-            if len(gutter_rects) > len(rects):
-                rects = gutter_rects
-                self._decision_context["route_chosen"] = "gutter"
-            else:
-                self._decision_context["route_chosen"] = "adaptive"
-        elif 3 <= len(rects) < 6:
-            gutter_rects = gutter_based_detection(gray, L, w, h, page_point_size, self.config, img_bgr)
-            if len(gutter_rects) >= 10 and len(gutter_rects) > len(rects) * 3:
-                self._decision_context["route_chosen"] = "adaptive"
-            elif len(gutter_rects) > len(rects):
-                if len(gutter_rects) - len(rects) >= 2:
-                    rects = gutter_rects
-                    self._decision_context["route_chosen"] = "gutter"
-                else:
-                    rects = merge_overlapping_rects(rects + gutter_rects)
-                    self._decision_context["route_chosen"] = "adaptive+gutter"
-            else:
-                self._decision_context["route_chosen"] = "adaptive"
-        else:
-            self._decision_context["route_chosen"] = "adaptive"
+        # Score all routes and pick the best
+        best_name, best_rects = select_best_result(route_results, page_point_size)
+        self._decision_context["route_chosen"] = best_name
+        self._decision_context["routes_available"] = {
+            k: len(v) for k, v in route_results.items()
+        }
 
-        return rects
+        return best_rects
 
-    def _modern_policy(
+    def _modern_route_selection(
         self,
-        rects: List[QRectF],
+        route_results: Dict[str, List[QRectF]],
         gray: NDArray,
         L: NDArray,
         img_bgr: NDArray,
         w: int,
         h: int,
         page_point_size: QSizeF,
+        config: "DetectorConfig",
     ) -> List[QRectF]:
-        """Modern detection policy for complex layouts.
-        
-        Uses adaptive + gutter + freeform with header/footer removal.
-        """
+        """Select best route for modern/complex style."""
         pdebug("[Policy] MODERN")
 
-        # Try gutter if adaptive weak
-        if len(rects) < 3:
-            gutter_rects = gutter_based_detection(gray, L, w, h, page_point_size, self.config, img_bgr)
-            if len(gutter_rects) > len(rects):
-                rects = gutter_rects
-        elif 3 <= len(rects) < 6:
-            gutter_rects = gutter_based_detection(gray, L, w, h, page_point_size, self.config, img_bgr)
-            if len(gutter_rects) > len(rects) and len(gutter_rects) < len(rects) * 3:
-                rects = merge_overlapping_rects(rects + gutter_rects)
+        # Header/footer removal on all routes
+        cleaned_results = {}
+        for name, rects in route_results.items():
+            cleaned = remove_header_footer_strips(rects, float(page_point_size.height()))
+            if cleaned:
+                cleaned_results[name] = cleaned
 
-        # Header/footer removal
-        rects = remove_header_footer_strips(rects, float(page_point_size.height()))
+        if not cleaned_results:
+            cleaned_results = route_results
 
-        # Freeform fallback
-        if self.config.use_freeform_fallback:
-            rects = self._try_freeform_fallback(rects, img_bgr, w, h, page_point_size)
-        else:
-            self._decision_context["route_chosen"] = "adaptive/gutter"
-            self._decision_context["freeform_triggered"] = False
+        # Score and select best
+        best_name, best_rects = select_best_result(cleaned_results, page_point_size)
 
-        return rects
+        # Freeform fallback if best result is weak
+        if config.use_freeform_fallback:
+            det_score = score_detection_result(best_rects, page_point_size)
+            if det_score < 0.45:
+                pdebug(f"[Freeform] Triggering: det_score={det_score:.3f} < 0.45")
+                self._decision_context["freeform_triggered"] = True
+                freeform_rects = freeform_detection(img_bgr, w, h, page_point_size, config)
+                if freeform_rects:
+                    ff_score = score_detection_result(freeform_rects, page_point_size)
+                    if ff_score > det_score:
+                        best_rects = freeform_rects
+                        best_name = "freeform"
+                        pdebug(f"Freeform: {len(freeform_rects)} rects (score={ff_score:.3f})")
+            else:
+                self._decision_context["freeform_triggered"] = False
 
-    def _try_freeform_fallback(
-        self,
-        rects: List[QRectF],
-        img_bgr: NDArray,
-        w: int,
-        h: int,
-        page_point_size: QSizeF,
-    ) -> List[QRectF]:
-        """Try freeform detection if adaptive/gutter results are weak."""
-        page_area = page_point_size.width() * page_point_size.height()
-        needs_freeform = False
-        reason = ""
+        self._decision_context["route_chosen"] = best_name
+        self._decision_context["routes_available"] = {
+            k: len(v) for k, v in route_results.items()
+        }
 
-        if len(rects) < 2:
-            needs_freeform = True
-            reason = "too few panels"
-        elif len(rects) > 0:
-            max_rect_area = max(r.width() * r.height() for r in rects)
-            if max_rect_area / page_area > 0.50:
-                needs_freeform = True
-                reason = f"large panel covering {max_rect_area/page_area*100:.1f}%"
-
-        if not needs_freeform:
-            self._decision_context["route_chosen"] = "adaptive/gutter"
-            self._decision_context["freeform_triggered"] = False
-            return rects
-
-        pdebug(f"[Freeform] Triggering: {reason}")
-        self._decision_context["freeform_triggered"] = True
-
-        freeform_rects = freeform_detection(img_bgr, w, h, page_point_size, self.config)
-
-        # Select best
-        return self._select_best_route(rects, freeform_rects, page_area, page_point_size)
-
-    def _select_best_route(
-        self,
-        adaptive_rects: List[QRectF],
-        freeform_rects: List[QRectF],
-        page_area: float,
-        page_point_size: QSizeF,
-    ) -> List[QRectF]:
-        """Select best detection route with mega-panel prevention."""
-        page_w = float(page_point_size.width())
-        page_h = float(page_point_size.height())
-
-        if not freeform_rects:
-            self._decision_context["route_chosen"] = "adaptive"
-            self._decision_context["freeform_selected"] = False
-            return adaptive_rects
-
-        if not adaptive_rects:
-            self._decision_context["route_chosen"] = "freeform"
-            self._decision_context["freeform_selected"] = True
-            return freeform_rects
-
-        # Check for mega-panel
-        has_mega_panel = False
-        if len(freeform_rects) <= 2:
-            for rect in freeform_rects:
-                if (rect.width() * rect.height()) / page_area > 0.60:
-                    has_mega_panel = True
-                    break
-
-        freeform_count = len(freeform_rects)
-        freeform_valid = 2 <= freeform_count <= 12 and not has_mega_panel
-
-        if freeform_valid:
-            self._decision_context["route_chosen"] = "freeform"
-            self._decision_context["freeform_selected"] = True
-            return freeform_rects
-        else:
-            self._decision_context["route_chosen"] = "adaptive"
-            self._decision_context["freeform_selected"] = False
-            return adaptive_rects
+        return best_rects
 
     def _post_process(
         self,

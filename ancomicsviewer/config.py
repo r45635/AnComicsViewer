@@ -80,6 +80,37 @@ class DetectorConfig:
     min_non_bg_ratio: float = 0.08  # Minimum ratio of non-background pixels (Lab distance > bg_delta)
     min_dim_ratio: float = 0.12    # Minimum dimension ratio vs median (to filter thin/gutter panels)
 
+    # Line Segment Detection (LSD) parameters
+    use_line_detection: bool = True        # Enable LSD-based line detection
+    lsd_min_length_frac: float = 0.08      # Minimum line length as fraction of image dimension
+    lsd_angle_tolerance: float = 8.0       # Maximum deviation from H/V in degrees
+    lsd_min_gap_frac: float = 0.04         # Minimum gap between line clusters as fraction
+    lsd_min_panel_frac: float = 0.03       # Minimum panel dimension as fraction
+
+    # Multi-scale consensus parameters
+    use_multiscale: bool = True            # Enable multi-scale consensus detection
+    multiscale_factors: list = field(default_factory=lambda: [0.6, 1.0, 1.5])  # Scale factors
+    multiscale_min_agreement: int = 2      # Minimum number of scales that must agree
+    multiscale_iou_threshold: float = 0.30 # IoU threshold to consider two rects as matching
+
+    # K-means background clustering parameters
+    use_kmeans_bg: bool = True             # Enable k-means background estimation
+    kmeans_k: int = 4                      # Number of color clusters
+    kmeans_bg_delta_expand: float = 15.0   # Lab distance to expand bg mask around centers
+
+    # Contour hierarchy analysis parameters
+    use_hierarchy: bool = True             # Enable contour hierarchy analysis
+    hierarchy_min_area_pct: float = 0.008  # Minimum panel area as fraction
+    hierarchy_max_area_pct: float = 0.95   # Maximum panel area as fraction
+    hierarchy_min_fill: float = 0.40       # Minimum fill ratio for panel contours
+    hierarchy_min_rectangularity: float = 0.50  # Minimum rectangularity score
+
+    # Template layout matching parameters
+    use_template_matching: bool = True     # Enable template matching refinement
+    template_min_score: float = 0.45       # Minimum template match score
+    template_grid_size: int = 20           # Grid resolution for template matching
+    template_detection_threshold: float = 0.60  # Below this det score, prefer template
+
     # Detection options
     use_canny_fallback: bool = True
     use_freeform_fallback: bool = True  # Enable freeform/watershed fallback
@@ -134,6 +165,32 @@ class DetectorConfig:
             "approx_eps_ratio": self.approx_eps_ratio,
             "min_non_bg_ratio": self.min_non_bg_ratio,
             "min_dim_ratio": self.min_dim_ratio,
+            # LSD
+            "use_line_detection": self.use_line_detection,
+            "lsd_min_length_frac": self.lsd_min_length_frac,
+            "lsd_angle_tolerance": self.lsd_angle_tolerance,
+            "lsd_min_gap_frac": self.lsd_min_gap_frac,
+            "lsd_min_panel_frac": self.lsd_min_panel_frac,
+            # Multi-scale
+            "use_multiscale": self.use_multiscale,
+            "multiscale_factors": self.multiscale_factors,
+            "multiscale_min_agreement": self.multiscale_min_agreement,
+            "multiscale_iou_threshold": self.multiscale_iou_threshold,
+            # K-means
+            "use_kmeans_bg": self.use_kmeans_bg,
+            "kmeans_k": self.kmeans_k,
+            "kmeans_bg_delta_expand": self.kmeans_bg_delta_expand,
+            # Hierarchy
+            "use_hierarchy": self.use_hierarchy,
+            "hierarchy_min_area_pct": self.hierarchy_min_area_pct,
+            "hierarchy_max_area_pct": self.hierarchy_max_area_pct,
+            "hierarchy_min_fill": self.hierarchy_min_fill,
+            "hierarchy_min_rectangularity": self.hierarchy_min_rectangularity,
+            # Template
+            "use_template_matching": self.use_template_matching,
+            "template_min_score": self.template_min_score,
+            "template_grid_size": self.template_grid_size,
+            "template_detection_threshold": self.template_detection_threshold,
             "use_canny_fallback": self.use_canny_fallback,
             "use_freeform_fallback": self.use_freeform_fallback,
             "reading_rtl": self.reading_rtl,
