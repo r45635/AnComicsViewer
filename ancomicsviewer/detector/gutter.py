@@ -347,9 +347,13 @@ def gutter_based_detection(
 ) -> List[QRectF]:
     """Full gutter-based detection pipeline.
     
-    Uses two complementary approaches:
+    Uses three complementary approaches:
     1. Mask-based: brightness + gradient uniformity + morphological filtering
     2. Profile-based: row/column mean brightness to find bright bands directly
+    3. Hierarchical: first H-gutters (rows), then per-row V-gutters (columns)
+    
+    The hierarchical approach handles classic BD layouts where different rows
+    have different column divisions (e.g., row 1 = 1 panel, row 2 = 3+2 panels).
     
     Args:
         gray: Grayscale image
@@ -379,13 +383,251 @@ def gutter_based_detection(
     v_lines = _merge_gutter_lines(v_lines, v_prof)
     pdebug(f"[gutters] merged: h={len(h_lines)} v={len(v_lines)}")
     
-    # Generate panels (allow h-only or v-only gutters)
+    # Method 3: Hierarchical detection — per-row V-gutter detection
+    # This is the primary approach for layouts with varying columns per row
+    if h_lines:
+        hier_rects = _detect_gutters_hierarchical(
+            gray, w, h, h_lines, page_point_size, config
+        )
+        if hier_rects:
+            pdebug(f"[gutters] hierarchical: {len(hier_rects)} panels")
+        
+        # Also generate flat-grid panels for comparison
+        flat_rects = []
+        if h_lines or v_lines:
+            flat_rects = panels_from_gutters(
+                h_lines, v_lines, w, h, page_point_size, config
+            )
+        
+        # Choose between hierarchical and flat results
+        # Hierarchical is better when it finds row-specific columns,
+        # but can over-segment when rows have varying content (false V-gutters).
+        # Prefer hierarchical only if it finds modestly more panels.
+        if hier_rects and flat_rects:
+            hier_n = len(hier_rects)
+            flat_n = len(flat_rects)
+            # Hierarchical is preferred when:
+            # - It found more structure (more panels)
+            # - But not wildly more (< 2x flat + 3, to avoid over-segmentation)
+            if hier_n > flat_n and hier_n <= flat_n * 2 + 3:
+                pdebug(f"[gutters] using hierarchical ({hier_n}) over flat ({flat_n})")
+                return hier_rects
+            else:
+                return flat_rects
+        elif flat_rects:
+            return flat_rects
+        elif hier_rects:
+            return hier_rects
+        else:
+            return []
+    
+    # No H-gutters: fall back to flat grid
     if h_lines or v_lines:
         rects = panels_from_gutters(h_lines, v_lines, w, h, page_point_size, config)
     else:
         rects = []
     
     return rects
+
+
+def _detect_gutters_hierarchical(
+    gray: NDArray,
+    w: int,
+    h: int,
+    h_gutters: List[Tuple[int, int]],
+    page_point_size: QSizeF,
+    config: "DetectorConfig",
+) -> List[QRectF]:
+    """Hierarchical gutter detection: H-gutters define rows, then find
+    V-gutters within each row independently.
+    
+    This handles classic BD layouts where each row can have a different
+    number of columns (e.g., row 1 = 1 wide panel, row 2 = 3 columns).
+    
+    Args:
+        gray: Grayscale image
+        w, h: Image dimensions
+        h_gutters: Horizontal gutters already detected
+        page_point_size: Page size in points
+        config: Detector configuration
+        
+    Returns:
+        List of panel rectangles
+    """
+    if not HAS_NUMPY:
+        return []
+    
+    scale = w / float(page_point_size.width()) if page_point_size.width() > 0 else 1.0
+    min_panel_w = max(config.min_rect_px, int(0.025 * w))
+    min_panel_h = max(config.min_rect_px, int(0.025 * h))
+    margin_w = int(w * 0.03)
+    
+    # Build row boundaries from H-gutters
+    # rows = [(y_start, y_end), ...]
+    boundaries = [(0, 0)] + list(h_gutters) + [(h - 1, h - 1)]
+    rows = []
+    for i in range(len(boundaries) - 1):
+        y_start = boundaries[i][1] + 1
+        y_end = boundaries[i + 1][0]
+        row_h = y_end - y_start
+        if row_h >= min_panel_h:
+            rows.append((y_start, y_end))
+    
+    if not rows:
+        return []
+    
+    rects = []
+    for row_y1, row_y2 in rows:
+        row_strip = gray[row_y1:row_y2, :]
+        row_h_px = row_y2 - row_y1
+        
+        if row_h_px < 10 or row_strip.size == 0:
+            continue
+        
+        # Find V-gutters within this row using column mean brightness
+        interior = row_strip[:, margin_w:w - margin_w]
+        if interior.size == 0:
+            continue
+            
+        col_means = interior.mean(axis=0)
+        col_median = np.median(col_means)
+        col_max = col_means.max()
+        
+        # Need meaningful contrast to detect gutters
+        min_thickness = max(config.min_gutter_px, 3)
+        
+        v_gutters_in_row = []
+        # Require both relative contrast AND absolute brightness.
+        # Real gutters are near-white (>225), not just brighter than content.
+        # Page 13 real V-gutters: mean 241-253. Page 5 noise: 202-216.
+        abs_bright_min = 225  # absolute minimum brightness for gutter pixels
+        if col_max - col_median > 30 and col_max > abs_bright_min:
+            v_thresh = col_median + 0.55 * (col_max - col_median)
+            # Only consider columns that are absolutely bright
+            bright_cols = np.where(
+                (col_means >= v_thresh) & (col_means >= abs_bright_min)
+            )[0] + margin_w
+            v_candidates = _group_bright_pixels(bright_cols, min_thickness, min_gap=5)
+            
+            # Validate: gutter must span most of the row height
+            for x_start, x_end in v_candidates:
+                # Skip margins (left/right edges of page)
+                if x_start < margin_w + 3 or x_end > w - margin_w - 3:
+                    continue
+                band = row_strip[:, x_start:x_end + 1]
+                if band.size == 0:
+                    continue
+                # Check absolute brightness AND coverage
+                bright_pct = (band >= abs_bright_min).mean()
+                if bright_pct >= 0.50:
+                    v_gutters_in_row.append((x_start, x_end))
+        
+        # Now build cells for this row
+        # Also check for horizontal sub-gutters within each cell (stacked panels)
+        col_boundaries = [(0, 0)] + v_gutters_in_row + [(w - 1, w - 1)]
+        
+        for j in range(len(col_boundaries) - 1):
+            x_start = col_boundaries[j][1] + 1
+            x_end = col_boundaries[j + 1][0]
+            cell_w = x_end - x_start
+            if cell_w < min_panel_w:
+                continue
+            
+            # Check for horizontal sub-gutters within this cell
+            cell = gray[row_y1:row_y2, x_start:x_end]
+            sub_h_gutters = _find_sub_gutters_in_cell(
+                cell, row_h_px, cell_w, config
+            )
+            
+            if sub_h_gutters:
+                # Split cell vertically
+                sub_boundaries = [(0, 0)] + sub_h_gutters + [(row_h_px - 1, row_h_px - 1)]
+                for k in range(len(sub_boundaries) - 1):
+                    sy = sub_boundaries[k][1] + 1
+                    ey = sub_boundaries[k + 1][0]
+                    sh = ey - sy
+                    if sh < min_panel_h:
+                        continue
+                    abs_y = row_y1 + sy
+                    rects.append(QRectF(
+                        x_start / scale,
+                        abs_y / scale,
+                        cell_w / scale,
+                        sh / scale,
+                    ))
+            else:
+                # Single cell, no sub-division
+                rects.append(QRectF(
+                    x_start / scale,
+                    row_y1 / scale,
+                    cell_w / scale,
+                    row_h_px / scale,
+                ))
+    
+    return rects
+
+
+def _find_sub_gutters_in_cell(
+    cell: NDArray,
+    cell_h: int,
+    cell_w: int,
+    config: "DetectorConfig",
+) -> List[Tuple[int, int]]:
+    """Find horizontal sub-gutters within a single cell.
+    
+    Used to detect stacked panels within a column of a row.
+    Only returns sub-gutters if they represent clear divisions.
+    
+    Args:
+        cell: Grayscale cell image
+        cell_h: Cell height in pixels
+        cell_w: Cell width in pixels
+        config: Detector configuration
+        
+    Returns:
+        List of (y_start, y_end) sub-gutters in cell-local coordinates
+    """
+    if not HAS_NUMPY or cell.size == 0:
+        return []
+    
+    # Don't subdivide cells that are already small
+    if cell_h < 60 or cell_w < 30:
+        return []
+    
+    # Margin: skip a few pixels from left/right edges of the cell
+    cell_margin = max(3, int(cell_w * 0.05))
+    interior = cell[:, cell_margin:cell_w - cell_margin]
+    if interior.size == 0:
+        return []
+    
+    row_means = interior.mean(axis=1)
+    median_val = np.median(row_means)
+    max_val = row_means.max()
+    
+    # Need strong contrast for sub-gutters
+    if max_val - median_val < 35:
+        return []
+    
+    thresh = median_val + 0.60 * (max_val - median_val)
+    min_thickness = max(config.min_gutter_px, 3)
+    
+    bright_rows = np.where(row_means >= thresh)[0]
+    candidates = _group_bright_pixels(bright_rows, min_thickness, min_gap=3)
+    
+    # Filter: sub-gutter must span most of cell width and not be at edges
+    validated = []
+    min_margin = int(cell_h * 0.08)  # don't split too close to edges
+    for y_start, y_end in candidates:
+        if y_start < min_margin or y_end > cell_h - min_margin:
+            continue
+        band = cell[y_start:y_end + 1, cell_margin:cell_w - cell_margin]
+        if band.size == 0:
+            continue
+        bright_pct = (band >= thresh * 0.85).mean()
+        if bright_pct >= 0.45:
+            validated.append((y_start, y_end))
+    
+    return validated
 
 
 def _detect_gutters_by_profile(
