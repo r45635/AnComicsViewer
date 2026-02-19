@@ -44,9 +44,9 @@ def make_gutter_mask(
     
     h, w = L.shape
     
-    # Adaptive brightness threshold
+    # Adaptive brightness threshold (cap at 240 so near-white gutters are included)
     bright_percentile = getattr(config, 'gutter_bright_percentile', 94)
-    bright_thresh = np.percentile(L, bright_percentile)
+    bright_thresh = min(np.percentile(L, bright_percentile), 240.0)
     
     # Compute gradient magnitude (Sobel)
     grad_x = cv2.Sobel(L, cv2.CV_32F, 1, 0, ksize=3)
@@ -67,7 +67,8 @@ def make_gutter_mask(
     gutter_mask = cv2.bitwise_and(bright_mask, uniform_mask)
     
     # Apply morphological opening with elongated kernels
-    open_kernel_len = max(int(w * config.gutter_open_kernel_frac), 21)
+    # Use a shorter kernel to avoid destroying narrow gutters
+    open_kernel_len = max(int(w * config.gutter_open_kernel_frac * 0.5), 15)
     
     h_kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (open_kernel_len, 3))
     h_open = cv2.morphologyEx(gutter_mask, cv2.MORPH_OPEN, h_kernel_open, iterations=1)
@@ -110,12 +111,18 @@ def _filter_stripes(
         component_mask = (labels == label_id).astype(np.uint8) * 255
         x, y, cw, ch = cv2.boundingRect(component_mask)
         
-        # Keep horizontal stripes
+        # Keep horizontal stripes (wide and thin)
         if cw >= min_h_stripe_len and ch <= min_stripe_w:
             result[component_mask > 0] = 255
-        # Keep vertical stripes
+        # Keep vertical stripes (tall and thin)
         elif ch >= min_v_stripe_len and cw <= min_stripe_w:
             result[component_mask > 0] = 255
+        # Also keep components with high aspect ratio (stripe-like)
+        # even if shorter than min_length, as long as aspect > 4:1
+        elif cw > 0 and ch > 0:
+            aspect = max(cw / ch, ch / cw)
+            if aspect >= 4.0 and max(cw, ch) >= min(min_h_stripe_len, min_v_stripe_len) * 0.4:
+                result[component_mask > 0] = 255
     
     return result
 
@@ -340,6 +347,10 @@ def gutter_based_detection(
 ) -> List[QRectF]:
     """Full gutter-based detection pipeline.
     
+    Uses two complementary approaches:
+    1. Mask-based: brightness + gradient uniformity + morphological filtering
+    2. Profile-based: row/column mean brightness to find bright bands directly
+    
     Args:
         gray: Grayscale image
         L: LAB L-channel
@@ -351,24 +362,145 @@ def gutter_based_detection(
     Returns:
         List of detected panel rectangles
     """
-    # Build gutter mask
+    # Method 1: Mask-based detection (original)
     gutter_mask = make_gutter_mask(gray, L, config, img_bgr)
     
-    # Detect gutter lines
     h_lines, v_lines = detect_gutter_lines(gutter_mask, config)
     pdebug(f"[gutters] h_lines raw={len(h_lines)} v_lines raw={len(v_lines)}")
     
-    # Validate
     h_lines, v_lines = validate_gutter_lines(gutter_mask, h_lines, v_lines, config)
     pdebug(f"[gutters] h_lines valid={len(h_lines)} v_lines valid={len(v_lines)}")
     
-    # Generate panels
-    if h_lines and v_lines:
+    # Method 2: Profile-based detection (simpler, more robust)
+    # Always run and merge — profile catches gutters that mask misses
+    h_prof, v_prof = _detect_gutters_by_profile(gray, w, h, config)
+    pdebug(f"[gutters] profile: h={len(h_prof)} v={len(v_prof)}")
+    h_lines = _merge_gutter_lines(h_lines, h_prof)
+    v_lines = _merge_gutter_lines(v_lines, v_prof)
+    pdebug(f"[gutters] merged: h={len(h_lines)} v={len(v_lines)}")
+    
+    # Generate panels (allow h-only or v-only gutters)
+    if h_lines or v_lines:
         rects = panels_from_gutters(h_lines, v_lines, w, h, page_point_size, config)
     else:
         rects = []
     
     return rects
+
+
+def _detect_gutters_by_profile(
+    gray: NDArray,
+    w: int,
+    h: int,
+    config: "DetectorConfig",
+) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+    """Detect gutters by analyzing row/column mean brightness profiles.
+    
+    Simpler approach: a row of pixels with high mean brightness is likely
+    a horizontal gutter. Works even when mask-based approach fails due
+    to morphological filtering.
+    
+    Returns:
+        (h_lines, v_lines)
+    """
+    if not HAS_NUMPY:
+        return [], []
+    
+    margin_h = int(h * 0.03)  # ignore top/bottom margins
+    margin_w = int(w * 0.03)  # ignore left/right margins
+    min_thickness = max(config.min_gutter_px, 3)
+    
+    # Horizontal gutters: mean brightness per row
+    # Use the interior portion (skip left/right margins)
+    interior = gray[margin_h:h - margin_h, margin_w:w - margin_w]
+    row_means = interior.mean(axis=1)
+    
+    # A gutter row should be significantly brighter than the page median
+    page_median = np.median(row_means)
+    # Threshold: at least 85% of the way from median to max
+    row_max = row_means.max()
+    thresh = page_median + 0.70 * (row_max - page_median)
+    # Only trigger if there's meaningful contrast
+    if row_max - page_median < 30:
+        return [], []
+    
+    bright_rows = np.where(row_means >= thresh)[0] + margin_h
+    h_lines = _group_bright_pixels(bright_rows, min_thickness, min_gap=5)
+    
+    # Filter: gutter must span at least 60% of interior width
+    validated_h = []
+    for y_start, y_end in h_lines:
+        band = gray[y_start:y_end + 1, margin_w:w - margin_w]
+        # Check that at least 60% of pixels in the band are bright
+        bright_pct = (band >= thresh * 0.9).mean()
+        if bright_pct >= 0.5:
+            validated_h.append((y_start, y_end))
+    
+    # Vertical gutters: mean brightness per column  
+    col_means = interior.mean(axis=0)
+    bright_cols = np.where(col_means >= thresh)[0] + margin_w
+    v_lines = _group_bright_pixels(bright_cols, min_thickness, min_gap=5)
+    
+    # Filter: gutter must span at least 60% of interior height
+    validated_v = []
+    for x_start, x_end in v_lines:
+        band = gray[margin_h:h - margin_h, x_start:x_end + 1]
+        bright_pct = (band >= thresh * 0.9).mean()
+        if bright_pct >= 0.5:
+            validated_v.append((x_start, x_end))
+    
+    return validated_h, validated_v
+
+
+def _group_bright_pixels(
+    indices: NDArray,
+    min_thickness: int,
+    min_gap: int = 5,
+) -> List[Tuple[int, int]]:
+    """Group consecutive pixel indices into line regions."""
+    if len(indices) == 0:
+        return []
+    
+    groups = []
+    start = indices[0]
+    prev = start
+    for idx in indices[1:]:
+        if idx > prev + min_gap:
+            if prev - start + 1 >= min_thickness:
+                groups.append((int(start), int(prev)))
+            start = idx
+        prev = idx
+    if prev - start + 1 >= min_thickness:
+        groups.append((int(start), int(prev)))
+    
+    return groups
+
+
+def _merge_gutter_lines(
+    existing: List[Tuple[int, int]],
+    new: List[Tuple[int, int]],
+    overlap_threshold: int = 15,
+) -> List[Tuple[int, int]]:
+    """Merge two lists of gutter lines, avoiding duplicates."""
+    if not new:
+        return existing
+    if not existing:
+        return new
+    
+    merged = list(existing)
+    for ns, ne in new:
+        n_mid = (ns + ne) / 2
+        is_duplicate = False
+        for es, ee in existing:
+            e_mid = (es + ee) / 2
+            if abs(n_mid - e_mid) < overlap_threshold:
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            merged.append((ns, ne))
+    
+    merged.sort(key=lambda x: x[0])
+    return merged
 
 
 # Import for type hints only

@@ -328,11 +328,36 @@ class PanelDetector:
         route_results: Dict[str, List[QRectF]],
         page_point_size: QSizeF,
     ) -> List[QRectF]:
-        """Select best route for classic Franco-Belge style."""
+        """Select best route for classic Franco-Belge style.
+
+        For classic Franco-Belge, gutter detection gets a structural bonus
+        because gutters (white separations) are the defining layout feature
+        of this style. When gutter detection finds clean results, it should
+        be preferred over heuristic-based routes.
+        """
         pdebug("[Policy] CLASSIC_FRANCO_BELGE")
 
-        # Score all routes and pick the best
-        best_name, best_rects = select_best_result(route_results, page_point_size)
+        best_name = ""
+        best_score = -1.0
+        best_rects: List[QRectF] = []
+
+        for name, rects in route_results.items():
+            score = score_detection_result(rects, page_point_size)
+
+            # Gutter structural bonus: gutters are the defining feature of
+            # classic Franco-Belge layout — when detected, boost confidence
+            if name == "gutter" and 3 <= len(rects) <= 12:
+                score = min(1.0, score + 0.06)
+
+            pdebug(f"[Score] {name}: {len(rects)} panels, score={score:.3f}")
+
+            if score > best_score:
+                best_score = score
+                best_name = name
+                best_rects = rects
+
+        pdebug(f"[Score] Best: {best_name} (score={best_score:.3f})")
+
         self._decision_context["route_chosen"] = best_name
         self._decision_context["routes_available"] = {
             k: len(v) for k, v in route_results.items()
