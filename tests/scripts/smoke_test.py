@@ -7,10 +7,10 @@ import json
 import sys
 import os
 
-# Add package to path if needed
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-if _script_dir not in sys.path:
-    sys.path.insert(0, _script_dir)
+# Add project root to path so 'ancomicsviewer' package is importable
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from ancomicsviewer import PanelDetector
 from ancomicsviewer.config import DetectorConfig
