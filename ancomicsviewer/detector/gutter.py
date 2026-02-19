@@ -605,26 +605,31 @@ def _find_sub_gutters_in_cell(
     max_val = row_means.max()
     
     # Need strong contrast for sub-gutters
-    if max_val - median_val < 35:
+    if max_val - median_val < 40:
         return []
     
-    thresh = median_val + 0.60 * (max_val - median_val)
+    # Sub-gutters must be truly bright (near-white), not just brighter
+    abs_bright_min = 225
+    if max_val < abs_bright_min:
+        return []
+    
+    thresh = median_val + 0.65 * (max_val - median_val)
     min_thickness = max(config.min_gutter_px, 3)
     
-    bright_rows = np.where(row_means >= thresh)[0]
+    bright_rows = np.where((row_means >= thresh) & (row_means >= abs_bright_min))[0]
     candidates = _group_bright_pixels(bright_rows, min_thickness, min_gap=3)
     
     # Filter: sub-gutter must span most of cell width and not be at edges
     validated = []
-    min_margin = int(cell_h * 0.08)  # don't split too close to edges
+    min_margin = int(cell_h * 0.12)  # don't split too close to edges
     for y_start, y_end in candidates:
         if y_start < min_margin or y_end > cell_h - min_margin:
             continue
         band = cell[y_start:y_end + 1, cell_margin:cell_w - cell_margin]
         if band.size == 0:
             continue
-        bright_pct = (band >= thresh * 0.85).mean()
-        if bright_pct >= 0.45:
+        bright_pct = (band >= abs_bright_min).mean()
+        if bright_pct >= 0.55:
             validated.append((y_start, y_end))
     
     return validated
@@ -659,9 +664,10 @@ def _detect_gutters_by_profile(
     
     # A gutter row should be significantly brighter than the page median
     page_median = np.median(row_means)
-    # Threshold: at least 85% of the way from median to max
+    # Threshold: 80% of the way from median to max
+    # Real gutters are near-white (250+), this excludes bright content (230s)
     row_max = row_means.max()
-    thresh = page_median + 0.70 * (row_max - page_median)
+    thresh = page_median + 0.80 * (row_max - page_median)
     # Only trigger if there's meaningful contrast
     if row_max - page_median < 30:
         return [], []
