@@ -309,6 +309,10 @@ class PanelDetector:
             route_results["gutter"] = gutter_rects
             pdebug(f"Gutter: {len(gutter_rects)} rects")
 
+        # Track structural signal counts for splash page detection
+        self._decision_context["gutter_count"] = len(gutter_rects) if gutter_rects else 0
+        self._decision_context["hierarchy_count"] = len(route_results.get("hierarchy", []))
+
         # === Route selection based on page style ===
         if panel_mode == "classic_franco_belge":
             rects = self._classic_route_selection(route_results, page_point_size)
@@ -476,6 +480,23 @@ class PanelDetector:
             non_bg_page = non_bg_ratio(img_bgr, bg_lab, self.config.freeform_bg_delta)
             if non_bg_page > 0.35:
                 pdebug(f"[splash] Empty -> full-page: non_bg={non_bg_page:.2f}")
+                return [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
+
+        # Cover/splash detection: no structural borders found + one dominant panel
+        gutter_count = self._decision_context.get("gutter_count", 1)
+        hierarchy_count = self._decision_context.get("hierarchy_count", 1)
+        if rects and gutter_count == 0 and hierarchy_count == 0:
+            page_area = page_point_size.width() * page_point_size.height()
+            areas = [r.width() * r.height() for r in rects]
+            max_area = max(areas) if areas else 0
+            total_area = sum(areas)
+            dominant_ratio = max_area / page_area if page_area > 0 else 0
+            # If one panel covers >40% of the page and others are noise
+            # (non-dominant panels together cover <20% of page) -> splash
+            non_dominant_area = total_area - max_area
+            non_dominant_ratio = non_dominant_area / page_area if page_area > 0 else 0
+            if dominant_ratio > 0.40 and non_dominant_ratio < 0.20:
+                pdebug(f"[splash] Cover page: dominant={dominant_ratio:.2f} noise={non_dominant_ratio:.2f}, returning full page")
                 return [QRectF(0, 0, page_point_size.width(), page_point_size.height())]
 
         return rects
