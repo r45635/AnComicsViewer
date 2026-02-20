@@ -484,6 +484,12 @@ def _detect_gutters_hierarchical(
         if row_h_px < 10 or row_strip.size == 0:
             continue
         
+        # Skip V-gutter search in narrow rows (< 12% of page height).
+        # Narrow rows are typically single full-width panels (e.g., row 2
+        # of page 6 is a ~10% thin horizontal strip). Searching for V-gutters
+        # in them produces false splits from margin brightness.
+        is_narrow_row = row_h_px < h * 0.12
+        
         # Find V-gutters within this row using column mean brightness
         interior = row_strip[:, margin_w:w - margin_w]
         if interior.size == 0:
@@ -501,7 +507,9 @@ def _detect_gutters_hierarchical(
         # Real gutters are near-white (>225), not just brighter than content.
         # Page 13 real V-gutters: mean 241-253. Page 5 noise: 202-216.
         abs_bright_min = 225  # absolute minimum brightness for gutter pixels
-        if col_max - col_median > 30 and col_max > abs_bright_min:
+        if is_narrow_row:
+            pass  # skip V-gutter search in narrow rows
+        elif col_max - col_median > 30 and col_max > abs_bright_min:
             v_thresh = col_median + 0.55 * (col_max - col_median)
             # Only consider columns that are absolutely bright
             bright_cols = np.where(
@@ -621,7 +629,7 @@ def _find_sub_gutters_in_cell(
     
     # Filter: sub-gutter must span most of cell width and not be at edges
     validated = []
-    min_margin = int(cell_h * 0.12)  # don't split too close to edges
+    min_margin = int(cell_h * 0.15)  # don't split too close to edges
     for y_start, y_end in candidates:
         if y_start < min_margin or y_end > cell_h - min_margin:
             continue
@@ -631,6 +639,15 @@ def _find_sub_gutters_in_cell(
         bright_pct = (band >= abs_bright_min).mean()
         if bright_pct >= 0.55:
             validated.append((y_start, y_end))
+    
+    # Limit to at most 1 sub-gutter per cell to avoid over-segmentation.
+    # Common BD layouts have at most 2 stacked panels per column.
+    # If multiple candidates, pick the one with highest coverage.
+    if len(validated) > 1:
+        best = max(validated, key=lambda g: (
+            cell[g[0]:g[1]+1, cell_margin:cell_w-cell_margin] >= abs_bright_min
+        ).mean())
+        validated = [best]
     
     return validated
 

@@ -931,14 +931,18 @@ class ComicsView(QMainWindow):
 
             cur = self.view.pageNavigator().currentPage()
             page_pts = doc.pagePointSize(cur)
-            z = self.view.zoomFactor()
+            z = self.view._effective_zoom_factor()
             vw = self.view.viewport().width()
             vh = self.view.viewport().height()
 
+            # Account for document margins (matches _page_to_view_xy)
+            margins = self.view.documentMargins()
             content_w = page_pts.width() * z
             content_h = page_pts.height() * z
-            pad_x = max(0.0, (vw - content_w) / 2.0)
-            pad_y = max(0.0, (vh - content_h) / 2.0)
+            avail_w = vw - margins.left() - margins.right()
+            avail_h = vh - margins.top() - margins.bottom()
+            pad_x = margins.left() + max(0.0, (avail_w - content_w) / 2.0)
+            pad_y = margins.top() + max(0.0, (avail_h - content_h) / 2.0)
 
             hbar = self.view.horizontalScrollBar()
             vbar = self.view.verticalScrollBar()
@@ -957,8 +961,8 @@ class ComicsView(QMainWindow):
                 x_pt = rect.left() - (margin_px / z)
                 y_pt = rect.top() - (margin_px / z)
 
-            target_x = int(max(0.0, pad_x + x_pt * z))
-            target_y = int(max(0.0, pad_y + y_pt * z))
+            target_x = round(max(0.0, pad_x + x_pt * z))
+            target_y = round(max(0.0, pad_y + y_pt * z))
 
             if hbar:
                 hbar.setValue(min(max(0, target_x), hbar.maximum()))
