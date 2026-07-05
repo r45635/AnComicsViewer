@@ -118,9 +118,11 @@ AnComicsViewer/
 │   ├── __init__.py           # Package exports
 │   ├── __main__.py           # Module entry point
 │   ├── config.py             # Configuration dataclasses & presets
-│   ├── detector.py           # Panel detection engine
+│   ├── detector/             # Modular panel detection engine (package)
 │   ├── image_utils.py        # QImage/NumPy conversions
 │   ├── pdf_view.py           # Custom PDF view widget
+│   ├── panel_editor.py       # Manual panel editing / corrections
+│   ├── async_detection.py    # Background detection workers
 │   ├── dialogs.py            # Tuning dialogs
 │   ├── cache.py              # LRU cache implementation
 │   └── main_window.py        # Main application window
@@ -137,7 +139,7 @@ AnComicsViewer/
 | Module | Description |
 |--------|-------------|
 | `config.py` | `DetectorConfig` and `AppConfig` dataclasses with 40+ tunable parameters |
-| `detector.py` | `PanelDetector` class with multi-route detection (Adaptive, LAB, Canny) |
+| `detector/` | Modular `PanelDetector` package with multi-route detection (adaptive, gutter, freeform, multiscale) |
 | `cache.py` | Thread-safe `LRUCache` and `PanelCache` for efficient caching |
 | `pdf_view.py` | `PannablePdfView` with pan/zoom and overlay support |
 | `dialogs.py` | `PanelTuningDialog` for interactive parameter adjustment |
